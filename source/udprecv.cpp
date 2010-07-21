@@ -86,7 +86,7 @@ int main(int argc, char* argv[]) //{{{
 
       while(count == 0 || received < count)
       {
-        if(received > 0 && received % 100 == 0)
+        if(received > 0 && received % 10000 == 0)
         {
           cout << "Received: " << stat << endl;
         }
