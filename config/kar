@@ -1,0 +1,4 @@
+BUILD_TYPE=Debug
+BOOST_INCLUDES=$(HOME)/opt/include
+BOOST_LIBS=$(HOME)/opt/lib
+NUM_CORES=5
