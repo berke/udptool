@@ -103,7 +103,7 @@ int main(int argc, char* argv[]) //{{{
 
       while(count == 0 || sent < count)
       {
-        if(sent > 0 && sent % 100 == 0)
+        if(sent > 0 && sent % 1000 == 0)
         {
           microsecond_timer::microseconds t = microsecond_timer::get();
           double dt = (t - t0) / 1e6;
