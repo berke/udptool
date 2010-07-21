@@ -21,6 +21,7 @@
 #include "boost_program_options_required_fix.hpp"
 #include "microsecond_timer.hpp"
 #include "link_statistic.hpp"
+#include "rtclock.hpp"
 
 namespace po = boost::program_options;
 namespace as = boost::asio;
@@ -36,6 +37,27 @@ string to_string(nat& n)
   return u.str();
 }
 
+class packet_receiver
+{
+  ofstream log; 
+  uint64_t seq;
+  rtclock clk;
+
+public:
+  packet_receiver(const string& log_file) :
+    log(log_file), seq(0)
+  {
+    log << "t size" << endl;
+  }
+
+  virtual ~packet_receiver() { } 
+
+  void receive(const char *buffer, size_t m)
+  {
+    log << clk.get() << " " << m << "\n";
+  }
+};
+
 int main(int argc, char* argv[]) //{{{
 {
   typedef const char *option;
@@ -43,15 +65,17 @@ int main(int argc, char* argv[]) //{{{
   string s_ip = "0.0.0.0";
   nat s_port = 5000;
   nat count = 0;
-  size_t size;
+  size_t size = 1500;
+  string log_file = "pkt.log";
 
   po::options_description desc("Available options");
   desc.add_options()
     ("help,h",                                                   "Display this information")
     ("sip",           po::value<string>(&s_ip),                  "Source IP to bind to")
-    ("sport",         po::value<nat>(&s_port) bpo_required,       "Source port to bind to")
+    ("sport",         po::value<nat>(&s_port) bpo_required,      "Source port to bind to")
     ("count",         po::value<nat>(&count),                    "Number of packets to receive, or 0 for no limit)")
     ("size",          po::value<size_t>(&size),                  "Reception buffer size")
+    ("log-file",      po::value<string>(&log_file),              "Log file")
   ;
 
   try
@@ -82,7 +106,8 @@ int main(int argc, char* argv[]) //{{{
       cout << "Listening" << endl;
 
       nat received = 0;
-      std::vector<char> buf(size);
+      vector<char> buf(size);
+      packet_receiver rx(log_file);
 
       while(count == 0 || received < count)
       {
@@ -103,6 +128,7 @@ int main(int argc, char* argv[]) //{{{
         {
           stat.add(received);
           received ++;
+          rx.receive(buf.data(), received);
         }
       }
     }
