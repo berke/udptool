@@ -22,6 +22,8 @@
 #include "microsecond_timer.hpp"
 #include "link_statistic.hpp"
 #include "rtclock.hpp"
+#include "wprng.hpp"
+#include "packet_header.hpp"
 
 namespace po = boost::program_options;
 namespace as = boost::asio;
@@ -47,14 +49,70 @@ public:
   packet_receiver(const string& log_file) :
     log(log_file), seq(0)
   {
-    log << "t size" << endl;
+    log << "t_rx size status seq t_tx errors" << endl;
   }
 
   virtual ~packet_receiver() { } 
 
-  void receive(const char *buffer, size_t m)
+  void receive(const char *buffer, const size_t m0)
   {
-    log << clk.get() << " " << m << "\n";
+    const int64_t t_rx = clk.get();
+    string status = "ok";
+    uint32_t seq = 0;
+    uint64_t t_tx = 0;
+    uint32_t errors = 0;
+
+    const string u(buffer, m0);
+    size_t m = m0;
+    stringstream s(u, ios_base::in);
+     
+    do
+    {
+      if(m0 < sizeof(packet_header))
+      {
+        status = "short";
+        break;
+      }
+
+      try
+      {
+        packet_header ph(s, m);
+
+        if(ph.checksum_valid())
+        {
+          status = "bad";
+          break;
+        }
+
+        seq = ph.sequence;
+        t_tx = ph.timestamp;
+
+        wprng w(ph.check);
+
+        if(ph.size != m)
+        {
+          status = "trunc";
+          break;
+        }
+
+        for(nat i = 0; i < m; i ++)
+        {
+          uint8_t expected_byte, received_byte;
+
+          expected_byte = w.get();
+          received_byte = s.get();
+
+          if(expected_byte != received_byte) errors ++;
+        }
+      }
+      catch(packet_header::encoding_error& e)
+      {
+        status = "bad";
+      }
+    }
+    while(false);
+
+    log << t_rx << " " << m0 << " " << status << " " << seq << " " << t_tx << " " << errors << "\n";
   }
 };
 
@@ -119,16 +177,16 @@ int main(int argc, char* argv[]) //{{{
 
         boost::system::error_code ec;
         udp::endpoint remote;
-        size_t received = socket.receive_from(boost::asio::buffer(buf), remote, 0, ec);
+        size_t size = socket.receive_from(boost::asio::buffer(buf), remote, 0, ec);
         if(ec)
         {
           cout << "Reception error: " << ec.message() << endl;
         }
         else
         {
-          stat.add(received);
+          stat.add(size);
+          rx.receive(buf.data(), size);
           received ++;
-          rx.receive(buf.data(), received);
         }
       }
     }

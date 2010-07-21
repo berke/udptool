@@ -7,6 +7,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <ctime>
+#include <cassert>
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -20,6 +21,9 @@
 
 #include "boost_program_options_required_fix.hpp"
 #include "microsecond_timer.hpp"
+#include "rtclock.hpp"
+#include "wprng.hpp"
+#include "packet_header.hpp"
 
 namespace po = boost::program_options;
 namespace as = boost::asio;
@@ -35,6 +39,42 @@ string to_string(nat& n)
   return u.str();
 }
 
+class packet_transmitter
+{
+  ofstream log; 
+  uint64_t seq;
+  rtclock clk;
+
+public:
+  packet_transmitter(const string& log_file) :
+    log(log_file), seq(0)
+  {
+    log << "t_rx size seq" << endl;
+  }
+
+  virtual ~packet_transmitter() { } 
+
+  void transmit(char *buffer, const size_t m0)
+  {
+    int64_t t_tx = clk.get();
+    log << t_tx << " " << m0 << " " << seq << endl;
+    if(m0 < packet_header::encoded_size) return;
+    size_t m = m0;
+    packet_header ph(clk, m0 - packet_header::encoded_size, seq);
+    stringstream s;
+    ph.encode(s, m);
+    wprng w(ph.check);
+    for(nat i = 0; i < m; i ++)
+    {
+       s.put(w.get());
+    }
+    const string u = s.str();
+    assert(m0 == u.size());
+    memcpy(buffer, u.c_str(), m0);
+    seq ++;
+  }
+};
+
 int main(int argc, char* argv[]) //{{{
 {
   typedef const char *option;
@@ -45,18 +85,20 @@ int main(int argc, char* argv[]) //{{{
   nat d_port = 0;
   nat count = 0;
   bool verbose = false;
+  string log_file = "pkt.log";
 
   po::options_description desc("Available options");
   desc.add_options()
-    ("help,h",                                                   "Display this information")
-    ("sip",           po::value<string>(&s_ip),                  "Source IP to bind to")
+    ("help,h",                                                    "Display this information")
+    ("sip",           po::value<string>(&s_ip),                   "Source IP to bind to")
     ("sport",         po::value<nat>(&s_port) bpo_required,       "Source port to bind to")
     ("dip",           po::value<string>(&d_ip) bpo_required,      "Destination IP to transmit to")
     ("dport",         po::value<nat>(&d_port) bpo_required,       "Destination port to transmit to")
     ("size",          po::value< vector<size_t> >() bpo_required, "Add a packet size")
     ("delay",         po::value< vector<double> >() bpo_required, "Add a packet transmission delay (ms)")
-    ("count",         po::value<nat>(&count),                    "Number of packets to send, or 0 for no limit)")
-    ("verbose",       po::bool_switch(&verbose),                 "Display each packet as it is sent")
+    ("count",         po::value<nat>(&count),                     "Number of packets to send, or 0 for no limit)")
+    ("verbose",       po::bool_switch(&verbose),                  "Display each packet as it is sent")
+    ("log-file",      po::value<string>(&log_file),               "Log file")
   ;
 
   try
@@ -87,6 +129,8 @@ int main(int argc, char* argv[]) //{{{
       cout << "Opening socket" << endl;
       udp::endpoint src(as::ip::address::from_string(s_ip), s_port);
       udp::socket socket(io, src);
+
+      packet_transmitter tx(log_file);
 
       nat sent = 0;
       microsecond_timer::microseconds t0 = microsecond_timer::get();
@@ -119,10 +163,7 @@ int main(int argc, char* argv[]) //{{{
         size_t size = *s_it ++;
 
         std::vector<char> buf(size);
-        for(nat i = 0; i < size; i ++)
-        {
-          buf[i] = random() & 255;
-        }
+        tx.transmit(buf.data(), size);
 
         if(delay > 0) t.expires_from_now(boost::posix_time::microseconds(delay * 1e3));
         socket.send_to(boost::asio::buffer(buf), receiver_endpoint);
