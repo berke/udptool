@@ -18,6 +18,7 @@
 #include <boost/asio.hpp>
 #include <boost/date_time/posix_time/posix_time.hpp>
 
+#include "boost_program_options_required_fix.hpp"
 #include "microsecond_timer.hpp"
 #include "link_statistic.hpp"
 
@@ -48,7 +49,7 @@ int main(int argc, char* argv[]) //{{{
   desc.add_options()
     ("help,h",                                                   "Display this information")
     ("sip",           po::value<string>(&s_ip),                  "Source IP to bind to")
-    ("sport",         po::value<nat>(&s_port)->required(),       "Source port to bind to")
+    ("sport",         po::value<nat>(&s_port) bpo_required,       "Source port to bind to")
     ("count",         po::value<nat>(&count),                    "Number of packets to receive, or 0 for no limit)")
     ("size",          po::value<size_t>(&size),                  "Reception buffer size")
   ;

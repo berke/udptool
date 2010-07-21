@@ -18,6 +18,7 @@
 #include <boost/asio.hpp>
 #include <boost/date_time/posix_time/posix_time.hpp>
 
+#include "boost_program_options_required_fix.hpp"
 #include "microsecond_timer.hpp"
 
 namespace po = boost::program_options;
@@ -49,11 +50,11 @@ int main(int argc, char* argv[]) //{{{
   desc.add_options()
     ("help,h",                                                   "Display this information")
     ("sip",           po::value<string>(&s_ip),                  "Source IP to bind to")
-    ("sport",         po::value<nat>(&s_port)->required(),       "Source port to bind to")
-    ("dip",           po::value<string>(&d_ip)->required(),      "Destination IP to transmit to")
-    ("dport",         po::value<nat>(&d_port)->required(),       "Destination port to transmit to")
-    ("size",          po::value< vector<size_t> >()->required(), "Add a packet size")
-    ("delay",         po::value< vector<double> >()->required(), "Add a packet transmission delay (ms)")
+    ("sport",         po::value<nat>(&s_port) bpo_required,       "Source port to bind to")
+    ("dip",           po::value<string>(&d_ip) bpo_required,      "Destination IP to transmit to")
+    ("dport",         po::value<nat>(&d_port) bpo_required,       "Destination port to transmit to")
+    ("size",          po::value< vector<size_t> >() bpo_required, "Add a packet size")
+    ("delay",         po::value< vector<double> >() bpo_required, "Add a packet transmission delay (ms)")
     ("count",         po::value<nat>(&count),                    "Number of packets to send, or 0 for no limit)")
     ("verbose",       po::bool_switch(&verbose),                 "Display each packet as it is sent")
   ;
