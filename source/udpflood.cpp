@@ -199,6 +199,7 @@ int main(int argc, char* argv[]) //{{{
   string log_file = "tx.log";
   double bandwidth = 0;
   nat avg_window = 10000, max_window = 10000;
+  double p_loss = 0.0;
 
   po::options_description desc("Available options");
   desc.add_options()
@@ -215,8 +216,9 @@ int main(int argc, char* argv[]) //{{{
     ("count",         po::value<nat>(&count),                           "Number of packets to send, or 0 for no limit)")
     ("verbose",       po::bool_switch(&verbose),                        "Display each packet as it is sent")
     ("log-file",      po::value<string>(&log_file),                     "Log file")
-    ("avg-window",     po::value<nat>(&avg_window),               "Size of running average window in packets")
-    ("max-window",     po::value<nat>(&max_window),               "Size of maximum window in packets")
+    ("avg-window",    po::value<nat>(&avg_window),                      "Size of running average window in packets")
+    ("max-window",    po::value<nat>(&max_window),                      "Size of maximum window in packets")
+    ("p-loss",        po::value<double>(&p_loss),                       "Simulated packet loss probability")
   ;
 
   enum
@@ -376,7 +378,8 @@ int main(int argc, char* argv[]) //{{{
           t.expires_at(
             microsecond_timer::as_posix(t0 + sent * delay * 1e3)
           );
-        socket.send_to(boost::asio::buffer(buf), receiver_endpoint);
+        if(p_loss == 0 || drand48() >= p_loss)
+          socket.send_to(boost::asio::buffer(buf), receiver_endpoint);
         if(verbose) cerr << size << " " << delay << endl;
         bytes += size;
         stat.add(size);
