@@ -13,7 +13,7 @@ namespace microsecond_timer
 {
   typedef int64_t microseconds;
 
-  /// Return absolute time in microseconds
+  /// Return relative time in microseconds
   microseconds get();
 
   /// Convert a POSIX time to absolute microseconds

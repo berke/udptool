@@ -137,6 +137,9 @@ int main(int argc, char* argv[]) //{{{
     ("log-file",      po::value<string>(&log_file),              "Log file")
   ;
 
+  enum { display_delay_microseconds = 1000000,
+         display_every = 100 };
+
   try
   {
     po::variables_map vm;
@@ -178,14 +181,10 @@ int main(int argc, char* argv[]) //{{{
       nat received = 0;
       vector<char> buf(size);
       packet_receiver rx(log_file);
+      microsecond_timer::microseconds t_last = microsecond_timer::get();
 
       while(count == 0 || received < count)
       {
-        if(received > 0 && received % 10000 == 0)
-        {
-          cout << "Received: " << stat << endl;
-        }
-
         udp::endpoint remote;
         size_t size = socket.receive_from(boost::asio::buffer(buf), remote, 0, ec);
         if(ec)
@@ -198,7 +197,18 @@ int main(int argc, char* argv[]) //{{{
           rx.receive(buf.data(), size);
           received ++;
         }
+
+        if(received % display_every == 0)
+        {
+          microsecond_timer::microseconds t_now = microsecond_timer::get();
+          if(t_now - t_last >= display_delay_microseconds)
+          {
+            cout << "Received: " << stat << endl;
+            t_last = t_now;
+          }
+        }
       }
+      cout << "Total: " << stat << endl;
     }
   }
   catch(po::error& e)

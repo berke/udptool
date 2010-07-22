@@ -95,6 +95,8 @@ double link_statistic::average_duration() const
 
 ostream& operator<<(ostream& out, const link_statistic& self)
 {
+  const double kiB_to_MBit = 8.0/1024;
+
   if(self.count < 2)
   {
     out << "NA";
@@ -110,9 +112,9 @@ ostream& operator<<(ostream& out, const link_statistic& self)
       self.total/1e3       << " kB in " <<
       t_total              << " s; " <<
       " bw " <<
-        self.instantaneous_bandwidth() << " kB/s instantaneous, " <<
-        self.average_bandwidth()       << " kB/s average (over " << t_average << " s at " << self.items.size()/t_average    << " packet/s), " <<
-        self.max_bandwidth()           << " kB/s max (over " << self.max_circular.size() << " samples), ";
+        kiB_to_MBit*self.instantaneous_bandwidth() << " Mbit/s instantaneous, " <<
+        kiB_to_MBit*self.average_bandwidth()       << " Mbit/s average (over " << t_average << " s at " << self.items.size()/t_average    << " packet/s), " <<
+        kiB_to_MBit*self.max_bandwidth()           << " Mbit/s max (over " << self.max_circular.size() << " samples), ";
   }
   return out;
 }

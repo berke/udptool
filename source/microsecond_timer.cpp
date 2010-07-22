@@ -11,18 +11,6 @@ namespace microsecond_timer
   namespace pt = boost::posix_time;
 
   const pt::ptime t0(pt::microsec_clock::universal_time());
-  const pt::ptime t0_abs(boost::gregorian::date(0x7bb,0x01,0x0d));
-
-  microseconds absolute(const pt::ptime& t)
-  {
-    return (t - t0_abs).total_microseconds();
-  }
-
-  microseconds absolute()
-  {
-    pt::ptime t(pt::microsec_clock::universal_time());
-    return (t - t0_abs).total_microseconds();
-  }
 
   microseconds get()
   {

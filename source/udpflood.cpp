@@ -21,6 +21,7 @@
 
 #include "boost_program_options_required_fix.hpp"
 #include "microsecond_timer.hpp"
+#include "link_statistic.hpp"
 #include "rtclock.hpp"
 #include "wprng.hpp"
 #include "packet_header.hpp"
@@ -102,6 +103,9 @@ int main(int argc, char* argv[]) //{{{
     ("log-file",      po::value<string>(&log_file),               "Log file")
   ;
 
+  enum { display_delay_microseconds = 1000000,
+         display_every = 100 };
+
   try
   {
     po::variables_map vm;
@@ -143,8 +147,10 @@ int main(int argc, char* argv[]) //{{{
       packet_transmitter tx(log_file);
 
       nat sent = 0;
-      microsecond_timer::microseconds t0 = microsecond_timer::get();
+      microsecond_timer::microseconds t_last = microsecond_timer::get();
       size_t bytes = 0;
+
+      link_statistic stat(1000, 1000);
 
       cout << "Starting flood" << endl;
       boost::asio::deadline_timer t(io);
@@ -155,14 +161,18 @@ int main(int argc, char* argv[]) //{{{
       vector<double>::iterator d_it = delays.begin();
       vector<size_t>::iterator s_it = sizes.begin();
 
+      microsecond_timer::microseconds t0 = microsecond_timer::get();
+
       while(count == 0 || sent < count)
       {
-        if(sent > 0 && sent % 1000 == 0)
+        if(sent > 0 && sent % display_every == 0)
         {
-          microsecond_timer::microseconds t = microsecond_timer::get();
-          double dt = (t - t0) / 1e6;
-          double throughput = bytes / dt;
-          cout << "Processed " << sent << " packets; throughput " << throughput/1e6 << " MB/s" << endl;
+          microsecond_timer::microseconds t_now = microsecond_timer::get();
+          if(t_now - t_last >= display_delay_microseconds)
+          {
+            cout << "Sent: " << stat << endl;
+            t_last = t_now;
+          }
         }
         sent ++;
 
@@ -175,12 +185,17 @@ int main(int argc, char* argv[]) //{{{
         std::vector<char> buf(size);
         tx.transmit(buf.data(), size);
 
-        if(delay > 0) t.expires_from_now(boost::posix_time::microseconds(delay * 1e3));
+        if(delay > 0)
+          t.expires_at(
+            microsecond_timer::as_posix(t0 + sent * delay * 1e3)
+          );
         socket.send_to(boost::asio::buffer(buf), receiver_endpoint);
         if(verbose) cerr << size << " " << delay << endl;
         bytes += size;
+        stat.add(size);
         if(delay > 0) t.wait();
       }
+      cout << "Total: " << stat << endl;
     }
   }
   catch(po::error& e)
