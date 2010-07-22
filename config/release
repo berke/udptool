@@ -1,0 +1,4 @@
+BUILD_TYPE=Release
+BOOST_INCLUDES=/usr/include
+BOOST_LIBS=/usr/lib
+NUM_CORES=$(shell grep '^processor' /proc/cpuinfo|wc -l)
