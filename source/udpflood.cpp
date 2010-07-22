@@ -96,6 +96,7 @@ public:
   typedef boost::shared_ptr<distribution> ptr;
   virtual ~distribution() { }
   virtual double next() = 0;
+  virtual double mean() = 0;
 };
 
 class dirac : public distribution
@@ -111,6 +112,7 @@ public:
   }
   dirac(double x0_) : x0(x0_) { }
   double next() { return x0; }
+  double mean() { return x0; }
 };
 
 class uniform : public distribution
@@ -127,10 +129,8 @@ public:
     check_eof(in);
   }
   uniform(double x0_, double x1_) : x0(x0_), x1(x1_) { }
-  double next()
-  {
-    return x0 + (x1 - x0) * drand48();
-  }
+  double next() { return x0 + (x1 - x0) * drand48(); }
+  double mean() { return 0.5 * (x0 + x1); }
 };
 
 void validate(boost::any& v, 
@@ -306,6 +306,11 @@ int main(int argc, char* argv[]) //{{{
         cerr << "Error: no bandwidth speicifed" << endl;
         return 1;
       }
+      if(bandwidth > 0 && have_delays && have_sizes)
+      {
+        cerr << "Error: cannot specify all three of bandwidth, delays and sizes." << endl;
+        return 1;
+      }
 
       microsecond_timer::microseconds t0 = microsecond_timer::get();
 
@@ -322,39 +327,41 @@ int main(int argc, char* argv[]) //{{{
         }
         sent ++;
 
-        double delay;
-        size_t size;
+        double delay, delay_avg;
+        size_t size, size_avg;
 
         if(have_delays)
         {
           delay = (*d_it)->next();
+          delay_avg = (*d_it)->mean();
           d_it ++;
           if(d_it == delays.end()) d_it = delays.begin();
         }
         else
         {
-          delay = default_delay;
+          delay_avg = delay = default_delay;
         }
 
         if(have_sizes)
         {
           size = (*s_it)->next();
+          size_avg = (*s_it)->mean();
           s_it ++;
           if(s_it == sizes.end()) s_it = sizes.begin();
         }
         else
         {
-          size = default_size;
+          size_avg = size = default_size;
         }
 
         if(!have_delays)
         {
-          delay = 1e3 * double(size) / (1e6/8.0 * bandwidth);
+          delay = 1e3 * double(size_avg) / (1e6/8.0 * bandwidth);
         }
 
         if(!have_sizes)
         {
-          size = double(delay) * 1e-3 * (1e6/8.0 * bandwidth);
+          size = double(delay_avg) * 1e-3 * (1e6/8.0 * bandwidth);
         }
 
         if(size <= 0) continue;

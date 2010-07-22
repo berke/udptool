@@ -10,12 +10,12 @@
 
 struct packet_header
 {
-  uint16_t sequence;
+  uint32_t sequence;
   uint32_t timestamp;
   uint16_t size;
   uint16_t check;
 
-  enum { encoded_size = 10 };
+  enum { encoded_size = 12 };
 
   class encoding_error { };
 
@@ -59,7 +59,7 @@ struct packet_header
     }
   }
   
-  uint32_t get_checksum() const
+  uint16_t get_checksum() const
   {
     return ~(sequence ^ size ^ timestamp);
   }
