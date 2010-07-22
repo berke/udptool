@@ -257,6 +257,7 @@ int main(int argc, char* argv[]) //{{{
       cout << "Opening socket" << endl;
       udp::endpoint src(as::ip::address::from_string(s_ip), s_port);
       udp::socket socket(io, src);
+#if HAVE_SO_NO_CHECK
       as::socket_base_extra::no_check opt(false);
       boost::system::error_code ec;
       socket.set_option(opt, ec);
@@ -266,6 +267,7 @@ int main(int argc, char* argv[]) //{{{
         u += ec.message();
         throw runtime_error(u);
       }
+#endif
 
       packet_transmitter tx(log_file);
 

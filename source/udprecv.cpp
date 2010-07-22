@@ -43,12 +43,13 @@ string to_string(nat& n)
 class packet_receiver
 {
   ofstream log; 
-  uint64_t seq;
+  uint64_t seq_min, seq_max, seq_last, out_of_order, count, bad_checksum, truncated, total_errors, total_erroneous;
   rtclock clk;
 
 public:
   packet_receiver(const string& log_file) :
-    log(log_file), seq(0)
+    log(log_file), seq_min(0), seq_max(0), seq_last(0), out_of_order(0), count(0),
+    bad_checksum(0), truncated(0), total_errors(0), total_erroneous(0)
   {
     log << "t_rx size status seq t_tx errors" << endl;
   }
@@ -82,16 +83,22 @@ public:
         if(ph.checksum_valid())
         {
           status = "bad";
+          bad_checksum ++;
           break;
         }
 
         seq = ph.sequence;
-        t_tx = ph.timestamp;
+        if(!count || seq < seq_min) seq_min = seq;
+        if(!count || seq > seq_max) seq_max = seq;
+        if(seq != seq_last + 1) out_of_order ++;
+        seq_last = seq;
 
+        t_tx = ph.timestamp;
         wprng w(ph.check);
 
         if(ph.size != m)
         {
+          truncated ++;
           status = "trunc";
           break;
         }
@@ -105,6 +112,11 @@ public:
 
           if(expected_byte != received_byte) errors ++;
         }
+        if(errors > 0)
+        {
+          total_erroneous ++;
+          total_errors += errors;
+        }
       }
       catch(packet_header::encoding_error& e)
       {
@@ -113,8 +125,40 @@ public:
     }
     while(false);
 
+    count ++;
+
     log << t_rx << " " << m-0 << " " << status << " " << seq << " " << t_tx << " " << errors << "\n";
   }
+
+  void output(ostream& out) const
+  {
+    if(!count)
+    {
+      out << "No packets received";
+      return;
+    }
+
+    out <<
+      "RX statistics:\n"
+      "  Total packets ..................... " << count                  << "\n"
+      "  Packets with bad checksum ......... " << bad_checksum           << "\n"
+      "  Truncated packets ................. " << truncated              << "\n"
+      "  Last sequence # ................... " << seq_last               << "\n"
+      "  Highest sequence # ................ " << seq_min                << "\n"
+      "  Lowest sequence # ................. " << seq_max                << "\n"
+      "  Out of order packets .............. " << out_of_order           << "\n"
+      "  Packet loss ratio ................. " << double(count) / (seq_max - seq_min + 1) << "\n"
+      "  Payload byte errors ............... " << total_errors           << " B\n"
+      "  Packets with erroneous payloads ... " << total_erroneous        << ""
+    ;
+  }
+
+  friend ostream& operator<<(ostream& out, const packet_receiver& self)
+  {
+    self.output(out);
+    return out;
+  }
+
 };
 
 int main(int argc, char* argv[]) //{{{
@@ -165,6 +209,7 @@ int main(int argc, char* argv[]) //{{{
       udp::endpoint src(as::ip::address::from_string(s_ip), s_port);
       udp::socket socket(io, src);
 
+#if HAVE_SO_NO_CHECK
       as::socket_base_extra::no_check opt(false);
       socket.set_option(opt, ec);
       if(ec)
@@ -173,6 +218,7 @@ int main(int argc, char* argv[]) //{{{
         u += ec.message();
         throw runtime_error(u);
       }
+#endif
 
       link_statistic stat(1000, 1000);
 
@@ -209,6 +255,7 @@ int main(int argc, char* argv[]) //{{{
         }
       }
       cout << "Total: " << stat << endl;
+      cout << rx << endl;
     }
   }
   catch(po::error& e)

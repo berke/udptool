@@ -5,16 +5,26 @@
 #ifndef NO_CHECK_SOCKET_OPTION_HPP_20100722
 #define NO_CHECK_SOCKET_OPTION_HPP_20100722
 
-namespace boost
-{
-  namespace asio
+#ifdef __LINUX__
+
+  #define HAVE_SO_NO_CHECK 1
+
+  namespace boost
   {
-    namespace socket_base_extra
+    namespace asio
     {
-      typedef boost::asio::detail::socket_option::boolean<SOL_SOCKET, SO_NO_CHECK> no_check;
+      namespace socket_base_extra
+      {
+        typedef boost::asio::detail::socket_option::boolean<SOL_SOCKET, SO_NO_CHECK> no_check;
+      };
     };
   };
-};
+
+#else
+
+  #define HAVE_SO_NO_CHECK 0
+
+#endif
 
 #endif
 
