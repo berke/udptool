@@ -77,6 +77,115 @@ public:
   }
 };
 
+class distribution
+{
+protected:
+  void eat(istream& in, const char c)
+  {
+    char sep; in >> sep;
+    if(sep != c) throw bad_parameters();
+  }
+
+  void check_eof(istream& in)
+  {
+    if(in.fail() || !in.eof()) throw bad_parameters();
+  }
+
+public:
+  class bad_parameters { };
+  typedef boost::shared_ptr<distribution> ptr;
+  virtual ~distribution() { }
+  virtual double next() = 0;
+};
+
+class dirac : public distribution
+{
+  double x0;
+
+public:
+  typedef boost::shared_ptr<dirac> ptr;
+  dirac(istream& in)
+  {
+    in >> x0;
+    check_eof(in);
+  }
+  dirac(double x0_) : x0(x0_) { }
+  double next() { return x0; }
+};
+
+class uniform : public distribution
+{
+  double x0, x1;
+
+public:
+  typedef boost::shared_ptr<uniform> ptr;
+  uniform(istream& in)
+  {
+    in >> x0;
+    eat(in, ',');
+    in >> x1;
+    check_eof(in);
+  }
+  uniform(double x0_, double x1_) : x0(x0_), x1(x1_) { }
+  double next()
+  {
+    return x0 + (x1 - x0) * drand48();
+  }
+};
+
+void validate(boost::any& v, 
+              const std::vector<std::string>& values,
+              distribution::ptr* target_type, int)
+{
+  const string& u = po::validators::get_single_string(values);
+
+  size_t i0 = u.find(':');
+  string kind = "dirac";
+  if(i0 == string::npos)
+  {
+    // Assume Dirac by default
+    i0 = -1;
+  }
+  else
+  {
+    kind = u.substr(0, i0);
+  }
+  const string param_s = u.substr(i0 + 1);
+  stringstream param(param_s);
+  distribution::ptr content;
+
+  if(kind == "dirac")
+  {
+    try
+    {
+      content = dirac::ptr(new dirac(param));
+    }
+    catch(...)
+    {
+      throw po::validation_error("Bad Dirac distribution description");
+    }
+  }
+  else if(kind == "uniform")
+  {
+    try
+    {
+      content = uniform::ptr(new uniform(param));
+    }
+    catch(...)
+    {
+      throw po::validation_error("Bad uniform distribution description");
+    }
+  }
+  else
+  {
+    string u = "Unknown distribution kind ";
+    u += kind;
+    throw po::validation_error(u);
+  }
+  v = content;
+}
+
+
 int main(int argc, char* argv[]) //{{{
 {
   typedef const char *option;
@@ -91,16 +200,18 @@ int main(int argc, char* argv[]) //{{{
 
   po::options_description desc("Available options");
   desc.add_options()
-    ("help,h",                                                    "Display this information")
-    ("sip",           po::value<string>(&s_ip),                   "Source IP to bind to")
-    ("sport",         po::value<nat>(&s_port) bpo_required,       "Source port to bind to")
-    ("dip",           po::value<string>(&d_ip) bpo_required,      "Destination IP to transmit to")
-    ("dport",         po::value<nat>(&d_port) bpo_required,       "Destination port to transmit to")
-    ("size",          po::value< vector<size_t> >() bpo_required, "Add a packet size")
-    ("delay",         po::value< vector<double> >() bpo_required, "Add a packet transmission delay (ms)")
-    ("count",         po::value<nat>(&count),                     "Number of packets to send, or 0 for no limit)")
-    ("verbose",       po::bool_switch(&verbose),                  "Display each packet as it is sent")
-    ("log-file",      po::value<string>(&log_file),               "Log file")
+    ("help,h",                                                          "Display this information")
+    ("sip",           po::value<string>(&s_ip),                         "Source IP to bind to")
+    ("sport",         po::value<nat>(&s_port) bpo_required,             "Source port to bind to")
+    ("dip",           po::value<string>(&d_ip) bpo_required,            "Destination IP to transmit to")
+    ("dport",         po::value<nat>(&d_port) bpo_required,             "Destination port to transmit to")
+    ("size",          po::value< vector<distribution::ptr> >() bpo_required,
+                                                                        "Add a packet size distribution")
+    ("delay",         po::value< vector<distribution::ptr> >() bpo_required,
+                                                                        "Add a packet transmission delay distribution (ms)")
+    ("count",         po::value<nat>(&count),                           "Number of packets to send, or 0 for no limit)")
+    ("verbose",       po::bool_switch(&verbose),                        "Display each packet as it is sent")
+    ("log-file",      po::value<string>(&log_file),                     "Log file")
   ;
 
   enum { display_delay_microseconds = 1000000,
@@ -155,11 +266,13 @@ int main(int argc, char* argv[]) //{{{
       cout << "Starting flood" << endl;
       boost::asio::deadline_timer t(io);
 
-      vector<size_t> sizes (vm["size" ].as< vector<size_t> >());
-      vector<double> delays(vm["delay"].as< vector<double> >());
+      vector<distribution::ptr>
+        sizes (vm["size" ].as< vector<distribution::ptr> >()),
+        delays(vm["delay"].as< vector<distribution::ptr> >());
 
-      vector<double>::iterator d_it = delays.begin();
-      vector<size_t>::iterator s_it = sizes.begin();
+      vector<distribution::ptr>::iterator
+        d_it = delays.begin(),
+        s_it = sizes.begin();
 
       microsecond_timer::microseconds t0 = microsecond_timer::get();
 
@@ -177,10 +290,13 @@ int main(int argc, char* argv[]) //{{{
         sent ++;
 
         if(d_it == delays.end()) d_it = delays.begin();
-        double delay = *d_it ++;
+        double delay = (*d_it)->next();
+        d_it ++;
 
         if(s_it == sizes.end()) s_it = sizes.begin();
-        size_t size = *s_it ++;
+        size_t size = (*s_it)->next();
+        s_it ++;
+        if(size <= 0) continue;
 
         std::vector<char> buf(size);
         tx.transmit(buf.data(), size);
