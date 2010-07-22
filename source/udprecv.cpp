@@ -99,7 +99,7 @@ public:
         seq = ph.sequence;
         if(!count || seq < seq_min) seq_min = seq;
         if(!count || seq > seq_max) seq_max = seq;
-        if(count && seq != seq_last + 1) out_of_order ++;
+        if(count && seq < seq_last) out_of_order ++;
         seq_last = seq;
 
         t_tx = ph.timestamp;
