@@ -191,12 +191,13 @@ int main(int argc, char* argv[]) //{{{
   typedef const char *option;
   
   string s_ip = "0.0.0.0";
-  nat s_port = 5000;
+  nat s_port = 0;
   string d_ip;
-  nat d_port = 0;
+  nat d_port = 33333;
   nat count = 0;
   bool verbose = false;
   string log_file = "pkt.log";
+  double bandwidth = 0;
 
   po::options_description desc("Available options");
   desc.add_options()
@@ -209,13 +210,19 @@ int main(int argc, char* argv[]) //{{{
                                                                         "Add a packet size distribution")
     ("delay",         po::value< vector<distribution::ptr> >() bpo_required,
                                                                         "Add a packet transmission delay distribution (ms)")
+    ("bandwidth",     po::value<double>(&bandwidth),                    "Adjust delay or packet size to bandwidth (Mbit/s)") 
     ("count",         po::value<nat>(&count),                           "Number of packets to send, or 0 for no limit)")
     ("verbose",       po::bool_switch(&verbose),                        "Display each packet as it is sent")
     ("log-file",      po::value<string>(&log_file),                     "Log file")
   ;
 
-  enum { display_delay_microseconds = 1000000,
-         display_every = 100 };
+  enum
+  {
+    display_delay_microseconds = 1000000,
+    display_every = 100,
+    default_size  = 1472,
+    default_delay = 1
+  };
 
   try
   {
@@ -231,6 +238,11 @@ int main(int argc, char* argv[]) //{{{
       return 1;
     }
 
+    if(d_ip.empty())
+    {
+      cerr << "Error: no destination IP" << endl;
+      return 1;
+    }
     as::io_service io;
 
     using as::ip::udp;
@@ -266,13 +278,32 @@ int main(int argc, char* argv[]) //{{{
       cout << "Starting flood" << endl;
       boost::asio::deadline_timer t(io);
 
-      vector<distribution::ptr>
-        sizes (vm["size" ].as< vector<distribution::ptr> >()),
-        delays(vm["delay"].as< vector<distribution::ptr> >());
+      vector<distribution::ptr> sizes, delays;
+
+      {
+        po::variable_value size_v = vm["size"],
+                           delay_v = vm["delay"];
+        if(!size_v.empty()) sizes = size_v.as< vector<distribution::ptr> >();
+        if(!delay_v.empty()) delays = delay_v.as< vector<distribution::ptr> >();
+      }
 
       vector<distribution::ptr>::iterator
         d_it = delays.begin(),
         s_it = sizes.begin();
+
+      bool have_delays = d_it != delays.end(),
+           have_sizes  = s_it != sizes.end();
+      
+      if(!have_delays && !have_sizes && bandwidth == 0)
+      {
+        cerr << "Error: no delay, size nor bandwidth speicifed" << endl;
+        return 1;
+      }
+      if((!have_delays || !have_sizes) && bandwidth == 0)
+      {
+        cerr << "Error: no bandwidth speicifed" << endl;
+        return 1;
+      }
 
       microsecond_timer::microseconds t0 = microsecond_timer::get();
 
@@ -289,13 +320,41 @@ int main(int argc, char* argv[]) //{{{
         }
         sent ++;
 
-        if(d_it == delays.end()) d_it = delays.begin();
-        double delay = (*d_it)->next();
-        d_it ++;
+        double delay;
+        size_t size;
 
-        if(s_it == sizes.end()) s_it = sizes.begin();
-        size_t size = (*s_it)->next();
-        s_it ++;
+        if(have_delays)
+        {
+          delay = (*d_it)->next();
+          d_it ++;
+          if(d_it == delays.end()) d_it = delays.begin();
+        }
+        else
+        {
+          delay = default_delay;
+        }
+
+        if(have_sizes)
+        {
+          size = (*s_it)->next();
+          s_it ++;
+          if(s_it == sizes.end()) s_it = sizes.begin();
+        }
+        else
+        {
+          size = default_size;
+        }
+
+        if(!have_delays)
+        {
+          delay = 1e3 * double(size) / (1e6/8.0 * bandwidth);
+        }
+
+        if(!have_sizes)
+        {
+          size = double(delay) * 1e-3 * (1e6/8.0 * bandwidth);
+        }
+
         if(size <= 0) continue;
 
         std::vector<char> buf(size);
