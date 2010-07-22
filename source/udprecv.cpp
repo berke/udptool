@@ -189,6 +189,7 @@ int main(int argc, char* argv[]) //{{{
   size_t size = 50000;
   string log_file = "rx.log";
   double detailed_every = 0;
+  nat avg_window = 10000, max_window = 10000;
 
   po::options_description desc("Available options");
   desc.add_options()
@@ -199,6 +200,8 @@ int main(int argc, char* argv[]) //{{{
     ("size",           po::value<size_t>(&size),                  "Reception buffer size")
     ("log-file",       po::value<string>(&log_file),              "Log file")
     ("detailed-every", po::value<double>(&detailed_every),        "Display detailed statistics every so many seconds")
+    ("avg-window",     po::value<nat>(&avg_window),               "Size of running average window in packets")
+    ("max-window",     po::value<nat>(&max_window),               "Size of maximum window in packets")
   ;
 
   enum { display_delay_microseconds = 1000000,
@@ -240,7 +243,7 @@ int main(int argc, char* argv[]) //{{{
       }
 #endif
 
-      link_statistic stat(1000, 1000);
+      link_statistic stat(avg_window, max_window);
 
       cout << "Listening" << endl;
 

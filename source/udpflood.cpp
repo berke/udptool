@@ -198,6 +198,7 @@ int main(int argc, char* argv[]) //{{{
   bool verbose = false;
   string log_file = "tx.log";
   double bandwidth = 0;
+  nat avg_window = 10000, max_window = 10000;
 
   po::options_description desc("Available options");
   desc.add_options()
@@ -214,6 +215,8 @@ int main(int argc, char* argv[]) //{{{
     ("count",         po::value<nat>(&count),                           "Number of packets to send, or 0 for no limit)")
     ("verbose",       po::bool_switch(&verbose),                        "Display each packet as it is sent")
     ("log-file",      po::value<string>(&log_file),                     "Log file")
+    ("avg-window",     po::value<nat>(&avg_window),               "Size of running average window in packets")
+    ("max-window",     po::value<nat>(&max_window),               "Size of maximum window in packets")
   ;
 
   enum
@@ -275,7 +278,7 @@ int main(int argc, char* argv[]) //{{{
       microsecond_timer::microseconds t_last = microsecond_timer::get();
       size_t bytes = 0;
 
-      link_statistic stat(1000, 1000);
+      link_statistic stat(avg_window, max_window);
 
       cout << "Starting flood" << endl;
       boost::asio::deadline_timer t(io);
