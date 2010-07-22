@@ -2,3 +2,6 @@
 - Use aynchronous I/O and gracefully handle signals
 - Add overhead option for computing on-wire bandwidth
 - Remove instantaneous banwidth from link stats
+- Ensure that
+- Log errors to a file
+- Option for disabling main log

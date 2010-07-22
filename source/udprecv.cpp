@@ -248,7 +248,7 @@ int main(int argc, char* argv[]) //{{{
     ("help,h",                                                    "Display this information")
     ("sip",            po::value<string>(&s_ip),                  "Source IP to bind to")
     ("sport",          po::value<nat>(&s_port) bpo_required,      "Source port to bind to")
-    ("count",          po::value<nat>(&count),                    "Number of packets to receive, or 0 for no limit)")
+    ("count",          po::value<nat>(&count),                    "Number of packets to receive, or 0 for no limit")
     ("size",           po::value<size_t>(&size),                  "Reception buffer size")
     ("log-file",       po::value<string>(&log_file),              "Log file")
     ("detailed-every", po::value<double>(&detailed_every),        "Display detailed statistics every so many seconds")

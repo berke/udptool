@@ -30,8 +30,10 @@ binary-package: binaries
 	@cp $(BUILD)/source/udprecv $(BUILD)/source/udpflood $(DESTINATION)-bin/
 	@tar czf $(DESTINATION)-bin.tar.gz -C $(shell dirname $(DESTINATION)-bin) $(shell basename $(DESTINATION)-bin)
 
-doc:
-	cd source && doxygen
+doc: doc/udptool-manual.html
+
+doc/udptool-manual.html: doc/udptool-manual.txt
+	asciidoc $<
 
 binaries: $(BUILD)/CMakeCache.txt
 	make -C$(BUILD) -j$(NUM_CORES)

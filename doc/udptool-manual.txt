@@ -1,0 +1,202 @@
+udptool manual
+==============
+Berke Durak <berke.durak@advantechamt.com>
+v1.0, July 22, 2010
+
+Description
+-----------
++udptool+ is a suite of two tools, +udpflood+ and +udprecv+ used to generate
+and receive traffic; +udpflood+ generates a UDP stream of controllable packet
+size and delay distribution, having a 12-byte header and a randomized payload;
++udpflood+ receives such streams and computes reception statistics.  Both
+tools log packets to an ASCII file with a one-line header that can be loaded
+into R with a +read.table("filename", header=T)+ command.  +udptool+ is
+written in C++ using the Boost ASIO library.
+
+Installation
+------------
+
+Getting the sources
+~~~~~~~~~~~~~~~~~~~
+If you are reading this, you have probably cloned +udptool+ from its git
+repository using +git clone+ or extracted a source tar ball.
+
+Compilation
+^^^^^^^^^^^
+To compile +udptool+ under Linux or a similar system you need:
+
+- GCC version 4.4 or later
+- Boost version 1.40 or later
+- Cmake
+
+Under Debian or Ubuntu, install them using:
+--------------------------------------------------------------------------
+% sudo apt-get install cmake gcc-4.4 libboost-date-time1.40-dev libboost-program-options1.40-dev libboost-system1.40-dev
+--------------------------------------------------------------------------
+
+Enter the +udptool+ directory and type +make CONFIG=release+.  The executables
+are +udprecv+ and +udpflood+ under +build.release/source+.
+
+Usage
+-----
+We assume that you want to send 1000 UDP packets from host A at 10.1.1.1 to host B
+at 10.2.2.2.
+
+On host B, launch +udprecv --count 1000+.  Then, on host A, launch +udpflood --count 1500 --dip 10.2.2.2+.
+
+Options for +udpflood+
+~~~~~~~~~~~~~~~~~~~~~~
++--sip arg+::         Source IP to bind to.  This option is only necessary if
+you want to send packets from a specific interface that cannot be unambiguously
+resolved by your routing rules given the destination address and port.
++--sport arg+::       Source port to bind to.  If not given, +udpflood+ will
+let the operating system decide of the source UDP port.
++--dip arg+::         Destination IP to transmit to.  This mandatory option
+gives the IP address of the target.
++--dport arg+::       Destination port to transmit to.  If not given, +udpflood+
+will default to port 33333.
++--size arg+::        Add a packet size distribution, in bytes.  Is 1472 by default.
+Either a single number, or a string of the form +uniform:N0,N1+ for a uniformly
+distributed value between +N0+ and +N1+.
++--delay arg+::       Add a packet transmission delay distribution, in milliseconds.
+Is 1 by default.  Either a single number, or a string of the form
++uniform:N0,N1+ for a uniformly distributed value between +N0+ and +N1+.
++--bandwidth B+::     If given, will adjust delay or packet size to obtain a net UDP
+                      payload bandwidth of B, specified in Mbit/s.
++--count arg+::       Number of packets to send, or 0 for no limit)
++--verbose+::         Display the size of each packet and the delay before the next
+packet.
++--log-file arg+::    Log file.  This allows you to override the name of the
+log file, which is +tx.log+.
++--avg-window N+::    Size of the running average window for displaying mean
+bandwidth.
++--max-window N+::    Size of the running maximum window for displaying maximum
+bandwidth.  This is actually the running maximum of the running average speed.
++--p-loss P+::        Simulated packet loss probability.  Unless +0+, +udpflood+
+will randomly drop (that is, fail to +sendto()+) packets with probability +P+.
+
+Notes
+^^^^^
+1. If multiple distributions are specified, +udpflood+ will cycle independently
+between them.  For instance if +--delay 1 --delay 3 --delay 5+ and +--size 100 --size 300+
+are specified then it will transmit a 100 byte packet and wait 1 ms, then
+a 300 byte packet and wait 3 ms, then a 100 byte packet and wait 5 ms, then
+a 300 byte packet and wait 1 ms, and so on.
+
+2. The +--bandwidth+ adjustment option does not currently work with multiple distributions;
+it will only take the first distribution, which can be fixed or random.
+
+Options for +udprecv+
+~~~~~~~~~~~~~~~~~~~~~
++--sip arg+::             Interface to listen on.  Will use 0.0.0.0 by default.
++--sport arg+::           Source port to bind to.  Will use 33333 by default.
++--count arg+::           Number of packets to receive, or 0 for no limit.
++--size arg+::            Reception buffer size.  Defaults to 50000 bytes.
++--log-file arg+::        Log file.  This allows you to override the name of the
+log file, which is +rx.log+.
++--detailed-every arg+::  Display detailed statistics every so many seconds.
++--avg-window N+::        Size of the running average window for displaying mean
+bandwidth.
++--max-window N+::        Size of the running maximum window for displaying maximum
+bandwidth.  This is actually the running maximum of the running average speed.
++--miss-window N+::       Size of window for detecting lost packets.  If the last
+                          +N+ packets do not contain an expected sequence number,
+                          +udprecv+ will assume that this sequence number will never
+                          be received, and counts it as a lost packet.
+
+
+Format of the transmission log files
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The transmission log file has the following format:
+--------------------------------------------------------------------------
+t_tx size seq
+100 12 0
+7831 13 1
+14275 69 2
+21337 257 3
+...
+--------------------------------------------------------------------------
+The first line is a header suitable for +R+, giving the column names.
+Each following line is a transmitted packet.
+The columns are:
++t_rx+:: Transmission time of the packet, in microseconds.  This is an unsigned integer field (64 bits).
++size+:: UDP payload size, in bytes.
++seq+:: Sequence number (unsigned 32 bits).
+
+The reception log file has the following format:
+--------------------------------------------------------------------------
+t_rx size status seq t_tx errors
+2332676 0 ok 0 119 0
+2332761 1 ok 1 7838 0
+2332829 506 ok 4 28398 0
+...
+--------------------------------------------------------------------------
+The first line is a header suitable for +R+, giving the column names.
+Each following line is a transmitted packet.
+The columns are:
+
++t_rx+:: Reception time of the packet, in microseconds.  This is an unsigned integer field (64 bits).
++size+:: UDP payload size, in bytes.
++status+:: Status code, one of:
+  +ok+:::    If the UDP packet header is consistent,
+  +short+::: If the UDP payload is too short to have a valid header.
+  +bad+:::   If the +udptool+ header has an incorrect 16-bit checksum.
+  +trunc+::: If the +udptool+ header reports a payload that is too big w.r.t. the UDP packet size.
++seq+::  Sequence number (unsigned 32 bits).  These start from +0+ when +udpflood+ is launched.
++t_tx+:: Transmission time of the packet, in microseconds, according to the sender.  This is an unsigned
+integer field (64 bits).
+
+Notes
+^^^^^
+1. Transmission time and reception time are given according to the respective clocks of the sender and
+received.  The clocks are obtained using the +clock_gettime(2)+ system call on the +CLOCK_MONOTONIC)+
+clock, which is described as:
++
+--------------------------------------------------------------------------
+ CLOCK_MONOTONIC
+        Clock that cannot be set and represents monotonic time since some
+        unspecified starting point.
+--------------------------------------------------------------------------
++
+Since the +CLOCK_MONOTONIC+ clocks of two given hosts are not synchronized, the
+constant component of the difference between the transmission time and
+reception time value is unpredictable and meaningless.
+
+Copyright and license
+---------------------
++udptool+ is based on tool written by the author working for himself and
+copyright (C)2010 Berke Durak.  It was then developed by Advantech AMT.
+Portions are therefore copyright (C)2010 Advantech AMT.  +udptool+ is
+released under a BSD LICENCE:
+
+License
+~~~~~~~
+Copyright (c) 2010 Berke DURAK <berke.durak@gmail.com>
+
+Portions copyright (c) 2010 Advantech AMT
+
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+
+1. Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+3. The name of the author may not be used to endorse or promote products
+   derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
+IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
+INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+

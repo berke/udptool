@@ -51,7 +51,7 @@ public:
   packet_transmitter(const string& log_file) :
     log(log_file), seq(0)
   {
-    log << "t_rx size seq" << endl;
+    log << "t_tx size seq" << endl;
   }
 
   virtual ~packet_transmitter() { } 
@@ -262,6 +262,7 @@ int main(int argc, char* argv[]) //{{{
       cout << "Opening socket" << endl;
       udp::endpoint src(as::ip::address::from_string(s_ip), s_port);
       udp::socket socket(io, src);
+#if 0
 #if HAVE_SO_NO_CHECK
       as::socket_base_extra::no_check opt(false);
       boost::system::error_code ec;
@@ -272,6 +273,7 @@ int main(int argc, char* argv[]) //{{{
         u += ec.message();
         throw runtime_error(u);
       }
+#endif
 #endif
 
       packet_transmitter tx(log_file);
