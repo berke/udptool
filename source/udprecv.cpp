@@ -43,13 +43,14 @@ string to_string(nat& n)
 class packet_receiver
 {
   ofstream log; 
-  uint64_t seq_min, seq_max, seq_last, out_of_order, count, bad_checksum, truncated, total_errors, total_erroneous;
+  uint64_t seq_min, seq_max, seq_last, out_of_order, count, byte_count, bad_checksum, truncated, total_errors, total_erroneous;
+  int64_t t_first, t_last;
   rtclock clk;
 
 public:
   packet_receiver(const string& log_file) :
     log(log_file), seq_min(0), seq_max(0), seq_last(0), out_of_order(0), count(0),
-    bad_checksum(0), truncated(0), total_errors(0), total_erroneous(0)
+    byte_count(0), bad_checksum(0), truncated(0), total_errors(0), total_erroneous(0)
   {
     log << "t_rx size status seq t_tx errors" << endl;
   }
@@ -90,7 +91,12 @@ public:
         seq = ph.sequence;
         if(!count || seq < seq_min) seq_min = seq;
         if(!count || seq > seq_max) seq_max = seq;
-        if(seq != seq_last + 1) out_of_order ++;
+        if(count && seq != seq_last + 1) out_of_order ++;
+        if(!count)
+        {
+          t_first = t_rx;
+        }
+        t_last = t_rx;
         seq_last = seq;
 
         t_tx = ph.timestamp;
@@ -125,6 +131,7 @@ public:
     }
     while(false);
 
+    byte_count += m0;
     count ++;
 
     log << t_rx << " " << m-0 << " " << status << " " << seq << " " << t_tx << " " << errors << "\n";
@@ -138,18 +145,23 @@ public:
       return;
     }
 
+    double dt = (t_last - t_first)/1e6;
+
     out <<
       "RX statistics:\n"
-      "  Total packets ..................... " << count                  << "\n"
-      "  Packets with bad checksum ......... " << bad_checksum           << "\n"
-      "  Truncated packets ................. " << truncated              << "\n"
-      "  Last sequence # ................... " << seq_last               << "\n"
+      "  Total packets ..................... " << count                  << " pk\n"
+      "  Total bytes ....................... " << byte_count             << " B\n"
+      "  Time .............................. " << dt                     << " s\n"
+      "  Packet rate ....................... " << count / dt             << " pk/s\n"
+      "  Bandwidth ......................... " << 8e-6 * byte_count / dt << " Mbit/s\n"
+      "  Packets with bad checksum ......... " << bad_checksum           << " pk\n"
+      "  Truncated packets ................. " << truncated              << " pk\n"
       "  Highest sequence # ................ " << seq_min                << "\n"
       "  Lowest sequence # ................. " << seq_max                << "\n"
-      "  Out of order packets .............. " << out_of_order           << "\n"
-      "  Packet loss ratio ................. " << double(count) / (seq_max - seq_min + 1) << "\n"
+      "  Out of order packets .............. " << out_of_order           << " pk\n"
+      "  Packet loss ratio ................. " << 1 - (double(count) / (seq_max - seq_min + 1)) << " pk\n"
       "  Payload byte errors ............... " << total_errors           << " B\n"
-      "  Packets with erroneous payloads ... " << total_erroneous        << ""
+      "  Packets with erroneous payloads ... " << total_erroneous        << " pk"
     ;
   }
 
@@ -166,10 +178,10 @@ int main(int argc, char* argv[]) //{{{
   typedef const char *option;
   
   string s_ip = "0.0.0.0";
-  nat s_port = 5000;
+  nat s_port = 33333;
   nat count = 0;
   size_t size = 1500;
-  string log_file = "pkt.log";
+  string log_file = "rx.log";
 
   po::options_description desc("Available options");
   desc.add_options()
@@ -254,7 +266,7 @@ int main(int argc, char* argv[]) //{{{
           }
         }
       }
-      cout << "Total: " << stat << endl;
+      cout << "Finally: " << stat << endl;
       cout << rx << endl;
     }
   }

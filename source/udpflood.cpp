@@ -196,7 +196,7 @@ int main(int argc, char* argv[]) //{{{
   nat d_port = 33333;
   nat count = 0;
   bool verbose = false;
-  string log_file = "pkt.log";
+  string log_file = "tx.log";
   double bandwidth = 0;
 
   po::options_description desc("Available options");
@@ -298,7 +298,7 @@ int main(int argc, char* argv[]) //{{{
       
       if(!have_delays && !have_sizes && bandwidth == 0)
       {
-        cerr << "Error: no delay, size nor bandwidth speicifed" << endl;
+        cerr << "Error: no delay, size nor bandwidth specified" << endl;
         return 1;
       }
       if((!have_delays || !have_sizes) && bandwidth == 0)
