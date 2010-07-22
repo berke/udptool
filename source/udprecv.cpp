@@ -24,6 +24,7 @@
 #include "rtclock.hpp"
 #include "wprng.hpp"
 #include "packet_header.hpp"
+#include "no_check_socket_option.hpp"
 
 namespace po = boost::program_options;
 namespace as = boost::asio;
@@ -112,7 +113,7 @@ public:
     }
     while(false);
 
-    log << t_rx << " " << m0 << " " << status << " " << seq << " " << t_tx << " " << errors << "\n";
+    log << t_rx << " " << m-0 << " " << status << " " << seq << " " << t_tx << " " << errors << "\n";
   }
 };
 
@@ -155,9 +156,20 @@ int main(int argc, char* argv[]) //{{{
     using as::ip::udp;
 
     {
+      boost::system::error_code ec;
+
       cout << "Opening socket" << endl;
       udp::endpoint src(as::ip::address::from_string(s_ip), s_port);
       udp::socket socket(io, src);
+
+      as::socket_base_extra::no_check opt(false);
+      socket.set_option(opt, ec);
+      if(ec)
+      {
+        string u = "Cannot set NO_CHECK option: ";
+        u += ec.message();
+        throw runtime_error(u);
+      }
 
       link_statistic stat(1000, 1000);
 
@@ -173,9 +185,7 @@ int main(int argc, char* argv[]) //{{{
         {
           cout << "Received: " << stat << endl;
         }
-        received ++;
 
-        boost::system::error_code ec;
         udp::endpoint remote;
         size_t size = socket.receive_from(boost::asio::buffer(buf), remote, 0, ec);
         if(ec)

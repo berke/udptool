@@ -24,6 +24,7 @@
 #include "rtclock.hpp"
 #include "wprng.hpp"
 #include "packet_header.hpp"
+#include "no_check_socket_option.hpp"
 
 namespace po = boost::program_options;
 namespace as = boost::asio;
@@ -57,7 +58,7 @@ public:
   void transmit(char *buffer, const size_t m0)
   {
     int64_t t_tx = clk.get();
-    log << t_tx << " " << m0 << " " << seq << endl;
+    log << t_tx << " " << m0 << " " << seq << "\n";
     if(m0 < packet_header::encoded_size) return;
     size_t m = m0;
     packet_header ph(clk, m0 - packet_header::encoded_size, seq);
@@ -129,6 +130,15 @@ int main(int argc, char* argv[]) //{{{
       cout << "Opening socket" << endl;
       udp::endpoint src(as::ip::address::from_string(s_ip), s_port);
       udp::socket socket(io, src);
+      as::socket_base_extra::no_check opt(false);
+      boost::system::error_code ec;
+      socket.set_option(opt, ec);
+      if(ec)
+      {
+        string u = "Cannot set NO_CHECK option: ";
+        u += ec.message();
+        throw runtime_error(u);
+      }
 
       packet_transmitter tx(log_file);
 
