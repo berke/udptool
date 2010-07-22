@@ -229,6 +229,8 @@ int main(int argc, char* argv[]) //{{{
     default_delay = 1
   };
 
+  srand48(microsecond_timer::get());
+
   try
   {
     po::variables_map vm;
