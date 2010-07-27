@@ -409,9 +409,9 @@ int main(int argc, char* argv[]) //{{{
   typedef const char *option;
   
   string s_ip = "0.0.0.0";
-  nat s_port = 0;
   string d_ip;
-  nat d_port = 33333;
+  nat port = 33333,
+      tx_src_port = 0;
   nat count = 0;
   bool verbose = false;
   string log_file;
@@ -433,9 +433,8 @@ int main(int argc, char* argv[]) //{{{
     ("tx",              po::bool_switch(&transmit),                       "Transmit packets")
     ("rx",              po::bool_switch(&receive),                        "Receive packets")
     ("sip",             po::value<string>(&s_ip),                         "Source IP to bind to")
-    ("sport",           po::value<nat>(&s_port),                          "Source port to bind to")
     ("dip",             po::value<string>(&d_ip),                         "Destination IP to transmit to")
-    ("dport",           po::value<nat>(&d_port),                          "Destination port to transmit to")
+    ("port",            po::value<nat>(&port),                            "Target port (default 33333)")
     ("size",            po::value< vector<distribution::ptr> >(),
                                                                           "Add a packet size distribution")
     ("delay",           po::value< vector<distribution::ptr> >(),
@@ -450,6 +449,7 @@ int main(int argc, char* argv[]) //{{{
     ("max-window",      po::value<nat>(&max_window),                      "Size of maximum window in packets")
     ("miss-window",     po::value<nat>(&miss_window),                     "Size of window for detecting lost packets")
     ("rx-buffer-size",  po::value<size_t>(&rx_buf_size),                  "Reception buffer size")
+    ("tx-src-port",     po::value<nat>(&tx_src_port),                     "Use a particular transmission source port")
 #if HAVE_SO_NO_CHECK
     ("no-check",        po::bool_switch(&no_check),                       "Disable UDP checksumming")
 #endif
@@ -500,13 +500,13 @@ int main(int argc, char* argv[]) //{{{
       }
 
       // Resolve destination address
-      cout << "Resolving " << d_ip << " port " << d_port << endl;
+      cout << "Resolving " << d_ip << " port " << port << endl;
       udp::resolver resolver(io);
-      udp::resolver::query query(udp::v4(), d_ip, to_string(d_port));
+      udp::resolver::query query(udp::v4(), d_ip, to_string(port));
       udp::endpoint receiver_endpoint = *resolver.resolve(query);
 
       cout << "Opening socket" << endl;
-      udp::endpoint src(as::ip::address::from_string(s_ip), s_port);
+      udp::endpoint src(as::ip::address::from_string(s_ip), tx_src_port);
       udp::socket socket(io, src);
 #if HAVE_SO_NO_CHECK
       if(no_check)
@@ -647,9 +647,9 @@ int main(int argc, char* argv[]) //{{{
     {
       boost::system::error_code ec;
 
-      cout << "Opening socket" << endl;
-      udp::endpoint src(as::ip::address::from_string(s_ip), s_port);
+      udp::endpoint src(as::ip::address::from_string(s_ip), port);
       udp::socket socket(io, src);
+      cout << "Listening on " << port << endl;
 
 #if HAVE_SO_NO_CHECK
       as::socket_base_extra::no_check opt(false);
@@ -663,8 +663,6 @@ int main(int argc, char* argv[]) //{{{
 #endif
 
       link_statistic stat(avg_window, max_window);
-
-      cout << "Listening" << endl;
 
       nat received = 0;
       vector<char> buf(rx_buf_size);
