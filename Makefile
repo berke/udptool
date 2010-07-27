@@ -11,8 +11,7 @@ include config/$(CONFIG)
 all: binaries
 
 install: binaries
-	install $(BUILD)/source/udprecv /usr/local/bin/udprecv
-	install $(BUILD)/source/udpflood /usr/local/bin/udpflood
+	install $(BUILD)/source/udptool /usr/local/bin/udptool
 
 help:
 	@echo "Typical usage:"
@@ -27,7 +26,7 @@ binary-package: binaries
 	@echo "Building binary package in" $(DESTINATION)-bin
 	@rm -rf $(DESTINATION)-bin
 	@mkdir -p $(DESTINATION)-bin
-	@cp $(BUILD)/source/udprecv $(BUILD)/source/udpflood $(DESTINATION)-bin/
+	@cp $(BUILD)/source/udptool $(DESTINATION)-bin/
 	@tar czf $(DESTINATION)-bin.tar.gz -C $(shell dirname $(DESTINATION)-bin) $(shell basename $(DESTINATION)-bin)
 
 doc: doc/udptool-manual.html

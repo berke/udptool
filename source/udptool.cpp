@@ -185,6 +185,46 @@ void validate(boost::any& v,
   v = content;
 }
 
+class miss_checker
+{
+  set<uint32_t> seen;
+  const nat m;
+  uint64_t duplicates, missing, original;
+
+public:
+  miss_checker(nat m_) : m(m_), duplicates(0), missing(0), original(0) { }
+
+  void remove()
+  {
+    set<nat>::iterator it = seen.begin();
+    if(seen.size() >= 2)
+    {
+      uint32_t s0 = *(it ++),
+               s1 = *it;
+      missing += s1 - s0 - 1;
+    }
+    seen.erase(seen.begin());
+  }
+
+  void add(nat seq)
+  {
+    if(seen.find(seq) == seen.end())
+    {
+      original ++;
+      if(seen.size() == m) remove();
+      seen.insert(seq);
+    }
+    else
+    {
+      duplicates ++;
+    }
+  }
+
+  uint64_t get_duplicates() const { return duplicates; }
+  uint64_t get_missing()    const { return missing; }
+  uint64_t get_original()   const { return original; }
+};
+
 class packet_receiver
 {
   ofstream log; 
@@ -192,12 +232,13 @@ class packet_receiver
            byte_count, bad_checksum, truncated, total_errors, total_erroneous;
   int64_t t_first, t_last;
   rtclock clk;
+  miss_checker mc;
 
 public:
-  packet_receiver(const string& log_file) :
+  packet_receiver(const string& log_file, nat miss_window) :
     log(log_file), seq_min(0), seq_max(0), seq_last(0), out_of_order(0),
     count(0), decodable_count(0), byte_count(0), bad_checksum(0), truncated(0),
-    total_errors(0), total_erroneous(0)
+    total_errors(0), total_erroneous(0), mc(miss_window)
   {
     log << "t_rx size status seq t_tx errors" << endl;
   }
@@ -244,8 +285,9 @@ public:
         seq = ph.sequence;
         if(!count || seq < seq_min) seq_min = seq;
         if(!count || seq > seq_max) seq_max = seq;
-        if(count && seq != seq_last + 1) out_of_order ++;
+        if(count && seq < seq_last) out_of_order ++;
         seq_last = seq;
+        mc.add(seq);
 
         t_tx = ph.timestamp;
         wprng w(ph.check);
@@ -297,6 +339,12 @@ public:
 
     double dt = (t_last - t_first)/1e6;
 
+    uint64_t original   = mc.get_original(),
+             missing    = mc.get_missing(),
+             duplicates = mc.get_duplicates(); 
+
+    double p_loss_ratio = double(missing) / double(missing + original);
+
     out <<
       "RX statistics:\n"
       "  Total packets ............................ " << count                  << " pk\n"
@@ -310,7 +358,10 @@ public:
       "  Lowest sequence # ........................ " << seq_max                << "\n"
       "  Out of order packets ..................... " << out_of_order           << " pk\n"
       "  Decodable packets ........................ " << decodable_count        << " pk\n"
-      "  Decodable loss ratio ..................... " << 1 - (double(decodable_count) / (seq_max - seq_min + 1)) << "\n"
+      "  Decodable loss ratio ..................... " << p_loss_ratio           << "\n"
+      "  Original decodables ...................... " << original               << " pk\n"
+      "  Lost decodables .......................... " << missing                << " pk\n"
+      "  Duplicate decodables ..................... " << duplicates             << " pk\n"
       "  Payload byte errors ...................... " << total_errors           << " B\n"
       "  Decodables with erroneous payloads........ " << total_erroneous        << " pk"
     ;
@@ -337,33 +388,39 @@ int main(int argc, char* argv[]) //{{{
   string log_file = "tx.log";
   double bandwidth = 0;
   double detailed_every = 0;
-  nat avg_window = 10000, max_window = 10000;
+  nat avg_window = 10000, max_window = 10000, miss_window = 50;
+  bool transmit = false, receive = false;
+  size_t rx_buf_size = 10000;
 #if HAVE_SO_NO_CHECK
   bool no_check = true;
 #endif
 
+  const char *progname = argv[0];
+
   po::options_description desc("Available options");
   desc.add_options()
-    ("tx",            po::bool_switch(&transmit),                       "Transmit packets")
-    ("rx",            po::bool_switch(&receive),                        "Receive packets")
-    ("help,h",                                                          "Display this information")
-    ("sip",           po::value<string>(&s_ip),                         "Source IP to bind to")
-    ("sport",         po::value<nat>(&s_port) bpo_required,             "Source port to bind to")
-    ("dip",           po::value<string>(&d_ip) bpo_required,            "Destination IP to transmit to")
-    ("dport",         po::value<nat>(&d_port) bpo_required,             "Destination port to transmit to")
-    ("size",          po::value< vector<distribution::ptr> >() bpo_required,
-                                                                        "Add a packet size distribution")
-    ("delay",         po::value< vector<distribution::ptr> >() bpo_required,
-                                                                        "Add a packet transmission delay distribution (ms)")
-    ("bandwidth",     po::value<double>(&bandwidth),                    "Adjust delay or packet size to bandwidth (Mbit/s)") 
-    ("count",         po::value<nat>(&count),                           "Number of packets to send, or 0 for no limit)")
-    ("verbose",       po::bool_switch(&verbose),                        "Display each packet as it is sent")
-    ("log-file",      po::value<string>(&log_file),                     "Log file")
-    ("avg-window",    po::value<nat>(&avg_window),                      "Size of running average window in packets")
-    ("max-window",    po::value<nat>(&max_window),                      "Size of maximum window in packets")
-    ("detailed-every", po::value<double>(&detailed_every),        "Display detailed statistics every so many seconds")
+    ("tx",              po::bool_switch(&transmit),                       "Transmit packets")
+    ("rx",              po::bool_switch(&receive),                        "Receive packets")
+    ("help,h",                                                            "Display this information")
+    ("sip",             po::value<string>(&s_ip),                         "Source IP to bind to")
+    ("sport",           po::value<nat>(&s_port) bpo_required,             "Source port to bind to")
+    ("dip",             po::value<string>(&d_ip) bpo_required,            "Destination IP to transmit to")
+    ("dport",           po::value<nat>(&d_port) bpo_required,             "Destination port to transmit to")
+    ("size",            po::value< vector<distribution::ptr> >() bpo_required,
+                                                                          "Add a packet size distribution")
+    ("delay",           po::value< vector<distribution::ptr> >() bpo_required,
+                                                                          "Add a packet transmission delay distribution (ms)")
+    ("bandwidth",       po::value<double>(&bandwidth),                    "Adjust delay or packet size to bandwidth (Mbit/s)") 
+    ("count",           po::value<nat>(&count),                           "Number of packets to send, or 0 for no limit)")
+    ("verbose",         po::bool_switch(&verbose),                        "Display each packet as it is sent")
+    ("detailed-every",  po::value<double>(&detailed_every),               "Display detailed statistics every so many seconds")
+    ("log-file",        po::value<string>(&log_file),                     "Log file")
+    ("avg-window",      po::value<nat>(&avg_window),                      "Size of running average window in packets")
+    ("max-window",      po::value<nat>(&max_window),                      "Size of maximum window in packets")
+    ("miss-window",    po::value<nat>(&miss_window),              "Size of window for detecting lost packets")
+    ("rx-buffer-size",  po::value<size_t>(&rx_buf_size),                  "Reception buffer size")
 #if HAVE_SO_NO_CHECK
-    ("no-check",      po::bool_switch(&no_check),                       "Disable UDP checksumming")
+    ("no-check",        po::bool_switch(&no_check),                       "Disable UDP checksumming")
 #endif
   ;
 
@@ -391,16 +448,24 @@ int main(int argc, char* argv[]) //{{{
       return 1;
     }
 
-    if(d_ip.empty())
+    // Check mode
+    if(!(transmit || receive))
     {
-      cerr << "Error: no destination IP" << endl;
+      cerr << progname << ": specify --tx or --rx" << endl;
       return 1;
     }
-    as::io_service io;
 
     using as::ip::udp;
+    as::io_service io;
 
+    if(transmit)
     {
+      if(d_ip.empty())
+      {
+        cerr << "Error: no destination IP" << endl;
+        return 1;
+      }
+
       // Resolve destination address
       cout << "Resolving " << d_ip << " port " << d_port << endl;
       udp::resolver resolver(io);
@@ -537,6 +602,67 @@ int main(int argc, char* argv[]) //{{{
         if(delay > 0) t.wait();
       }
       cout << "Total: " << stat << endl;
+    }
+    else
+    {
+      boost::system::error_code ec;
+
+      cout << "Opening socket" << endl;
+      udp::endpoint src(as::ip::address::from_string(s_ip), s_port);
+      udp::socket socket(io, src);
+
+#if HAVE_SO_NO_CHECK
+      as::socket_base_extra::no_check opt(false);
+      socket.set_option(opt, ec);
+      if(ec)
+      {
+        string u = "Cannot set NO_CHECK option: ";
+        u += ec.message();
+        throw runtime_error(u);
+      }
+#endif
+
+      link_statistic stat(avg_window, max_window);
+
+      cout << "Listening" << endl;
+
+      nat received = 0;
+      vector<char> buf(rx_buf_size);
+      packet_receiver rx(log_file, miss_window);
+      microsecond_timer::microseconds t_last = microsecond_timer::get(), t_last_detailed = t_last;
+
+      while(count == 0 || received < count)
+      {
+        udp::endpoint remote;
+        size_t size = socket.receive_from(boost::asio::buffer(buf), remote, 0, ec);
+        if(ec)
+        {
+          cout << "Reception error: " << ec.message() << endl;
+        }
+        else
+        {
+          stat.add(size);
+          rx.receive(buf.data(), size);
+          received ++;
+        }
+
+        if(received % display_every == 0)
+        {
+          microsecond_timer::microseconds t_now = microsecond_timer::get();
+          if(t_now - t_last >= display_delay_microseconds)
+          {
+            cout << "Received: " << stat << endl;
+            t_last = t_now;
+          }
+          if(detailed_every > 0 && t_now - t_last_detailed >= detailed_every * 1e6)
+          {
+            cout << rx << endl;
+            t_last_detailed = t_now;
+          }
+        }
+      }
+      cout << "Finally: " << stat << endl;
+      cout << rx << endl;
     }
   }
   catch(po::error& e)

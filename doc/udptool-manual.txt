@@ -5,13 +5,13 @@ v1.0, July 22, 2010
 
 Description
 -----------
-+udptool+ is a suite of two tools, +udpflood+ and +udprecv+ used to generate
-and receive traffic; +udpflood+ generates a UDP stream of controllable packet
-size and delay distribution, having a 12-byte header and a randomized payload;
-+udpflood+ receives such streams and computes reception statistics.  Both
-tools log packets to an ASCII file with a one-line header that can be loaded
-into R with a +read.table("filename", header=T)+ command.  +udptool+ is
-written in C++ using the Boost ASIO library.
++udptool+ is a tool used to generate and receive traffic; +udptool --tx+
+generates a UDP stream of controllable packet size and delay distribution,
+having a 12-byte header and a randomized payload; +udptool --rx+ receives such
+streams and computes reception statistics.  Both tools log packets to an ASCII
+file with a one-line header that can be loaded into R with a
++read.table("filename", header=T)+ command.  +udptool+ is written in C++ using
+the Boost ASIO library.
 
 Installation
 ------------
@@ -34,26 +34,26 @@ Under Debian or Ubuntu, install them using:
 % sudo apt-get install cmake gcc-4.4 libboost-date-time1.40-dev libboost-program-options1.40-dev libboost-system1.40-dev
 --------------------------------------------------------------------------
 
-Enter the +udptool+ directory and type +make CONFIG=release+.  The executables
-are +udprecv+ and +udpflood+ under +build.release/source+.
+Enter the +udptool+ directory and type +make CONFIG=release+.  The executable
+is +udptool+ under +build.release/source+.
 
 Usage
 -----
 We assume that you want to send 1000 UDP packets from host A at 10.1.1.1 to host B
 at 10.2.2.2.
 
-On host B, launch +udprecv --count 1000+.  Then, on host A, launch +udpflood --count 1500 --dip 10.2.2.2+.
+On host B, launch +udptool --rx --count 1000+.  Then, on host A, launch +udptool --tx --count 1500 --dip 10.2.2.2+.
 
-Options for +udpflood+
-~~~~~~~~~~~~~~~~~~~~~~
+Options for +udptool --tx+
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 +--sip arg+::         Source IP to bind to.  This option is only necessary if
 you want to send packets from a specific interface that cannot be unambiguously
 resolved by your routing rules given the destination address and port.
-+--sport arg+::       Source port to bind to.  If not given, +udpflood+ will
++--sport arg+::       Source port to bind to.  If not given, +udptool --tx+ will
 let the operating system decide of the source UDP port.
 +--dip arg+::         Destination IP to transmit to.  This mandatory option
 gives the IP address of the target.
-+--dport arg+::       Destination port to transmit to.  If not given, +udpflood+
++--dport arg+::       Destination port to transmit to.  If not given, +udptool --tx+
 will default to port 33333.
 +--size arg+::        Add a packet size distribution, in bytes.  Is 1472 by default.
 Either a single number, or a string of the form +uniform:N0,N1+ for a uniformly
@@ -72,12 +72,12 @@ log file, which is +tx.log+.
 bandwidth.
 +--max-window N+::    Size of the running maximum window for displaying maximum
 bandwidth.  This is actually the running maximum of the running average speed.
-+--p-loss P+::        Simulated packet loss probability.  Unless +0+, +udpflood+
++--p-loss P+::        Simulated packet loss probability.  Unless +0+, +udptool --tx+
 will randomly drop (that is, fail to +sendto()+) packets with probability +P+.
 
 Notes
 ^^^^^
-1. If multiple distributions are specified, +udpflood+ will cycle independently
+1. If multiple distributions are specified, +udptool --tx+ will cycle independently
 between them.  For instance if +--delay 1 --delay 3 --delay 5+ and +--size 100 --size 300+
 are specified then it will transmit a 100 byte packet and wait 1 ms, then
 a 300 byte packet and wait 3 ms, then a 100 byte packet and wait 5 ms, then
@@ -86,12 +86,12 @@ a 300 byte packet and wait 1 ms, and so on.
 2. The +--bandwidth+ adjustment option does not currently work with multiple distributions;
 it will only take the first distribution, which can be fixed or random.
 
-Options for +udprecv+
-~~~~~~~~~~~~~~~~~~~~~
+Options for +udptool --rx+
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 +--sip arg+::             Interface to listen on.  Will use 0.0.0.0 by default.
 +--sport arg+::           Source port to bind to.  Will use 33333 by default.
 +--count arg+::           Number of packets to receive, or 0 for no limit.
-+--size arg+::            Reception buffer size.  Defaults to 50000 bytes.
++--rx-buf-size arg+::     Reception buffer size.  Defaults to 50000 bytes.
 +--log-file arg+::        Log file.  This allows you to override the name of the
 log file, which is +rx.log+.
 +--detailed-every arg+::  Display detailed statistics every so many seconds.
@@ -101,7 +101,7 @@ bandwidth.
 bandwidth.  This is actually the running maximum of the running average speed.
 +--miss-window N+::       Size of window for detecting lost packets.  If the last
                           +N+ packets do not contain an expected sequence number,
-                          +udprecv+ will assume that this sequence number will never
+                          +udptool --rx+ will assume that this sequence number will never
                           be received, and counts it as a lost packet.
 
 
@@ -142,7 +142,7 @@ The columns are:
   +short+::: If the UDP payload is too short to have a valid header.
   +bad+:::   If the +udptool+ header has an incorrect 16-bit checksum.
   +trunc+::: If the +udptool+ header reports a payload that is too big w.r.t. the UDP packet size.
-+seq+::  Sequence number (unsigned 32 bits).  These start from +0+ when +udpflood+ is launched.
++seq+::  Sequence number (unsigned 32 bits).  These start from +0+ when +udptool --tx+ is launched.
 +t_tx+:: Transmission time of the packet, in microseconds, according to the sender.  This is an unsigned
 integer field (64 bits).
 

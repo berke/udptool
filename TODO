@@ -1,6 +1,5 @@
 To do
 =====
-- Merge udprecv and udpflood
 - Use aynchronous I/O and gracefully handle signals
 - Add overhead option for computing on-wire bandwidth
 - Remove instantaneous banwidth from link stats
@@ -10,3 +9,4 @@ To do
 Done
 ====
 - Seed PRNG
+- Merge udprecv and udpflood
