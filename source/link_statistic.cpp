@@ -46,27 +46,6 @@ double link_statistic::max_bandwidth() const
   return *it;
 }
 
-double link_statistic::instantaneous_bandwidth() const
-{
-  if(items.size() < 2) return 0;
-
-  boost::circular_buffer<item>::const_iterator it = items.begin();
-  const item& i1 = *it;
-  it ++;
-  const item& i2 = *it;
-
-  double dt = 1e-6 * (i1.when - i2.when);
-  size_t dB = i1.size;
-  if(dt > 0)
-  {
-    return dB/dt/1e3;
-  }
-  else
-  {
-    return 0;
-  }
-}
-
 double link_statistic::average_bandwidth() const
 {
   if(items.size() < 2)
@@ -111,8 +90,7 @@ ostream& operator<<(ostream& out, const link_statistic& self)
       self.count           << " packets, " <<
       self.total/1e3       << " kB in " <<
       t_total              << " s; " <<
-      " bw " <<
-        kiB_to_MBit*self.instantaneous_bandwidth() << " Mbit/s instantaneous, " <<
+      "bw " <<
         kiB_to_MBit*self.average_bandwidth()       << " Mbit/s average (over " << t_average << " s at " << self.items.size()/t_average    << " packet/s), " <<
         kiB_to_MBit*self.max_bandwidth()           << " Mbit/s max (over " << self.max_circular.size() << " samples), ";
   }

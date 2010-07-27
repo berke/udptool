@@ -36,8 +36,8 @@ class link_statistic
 
 public:
   /// Construct a link statistic computing object
-  /// \param running_average_window Compute the average instantaneous bandwidth over the last this many samples
-  /// \param maximum_window         Compute the maximum instantaneous bandwidth over the last this many samples
+  /// \param running_average_window Compute the average bandwidth over the last this many samples
+  /// \param maximum_window         Compute the maximum bandwidth over the last this many samples
   link_statistic(nat running_average_window=10, nat maximum_window=100);
 
   /// Notify that a packet has been transmitted.
@@ -52,12 +52,8 @@ public:
   /// Return the duration over which the average has been computed.
   double average_duration() const;
 
-  /// Return the instantaneous bandwidth.
-  /// \returns Instantaneous bandwidth over the specificed number of samples, in kB/s
-  double instantaneous_bandwidth() const;
-
   /// Return the maximum bandwidth.
-  /// \returns Maximum instantaneous bandwidth over the specificed number of samples, in kB/s
+  /// \returns Maximum bandwidth over the specificed number of samples, in kB/s
   double max_bandwidth() const;
 
   friend std::ostream& operator<<(std::ostream& out, const link_statistic& self);

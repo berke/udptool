@@ -192,32 +192,52 @@ class miss_checker
   uint64_t duplicates, missing, original;
 
 public:
-  miss_checker(nat m_) : m(m_), duplicates(0), missing(0), original(0) { }
+  struct result
+  {
+    bool is_duplicate;
+    bool some_missing;
+    nat first_missing, last_missing;
 
-  void remove()
+    result() : is_duplicate(false), some_missing(false), first_missing(0), last_missing(0) { }
+  };
+
+  miss_checker(nat m_) : m(m_),  duplicates(0), missing(0), original(0) { }
+
+  void remove(result& r)
   {
     set<nat>::iterator it = seen.begin();
     if(seen.size() >= 2)
     {
       uint32_t s0 = *(it ++),
                s1 = *it;
-      missing += s1 - s0 - 1;
+      nat num_missing = s1 - s0 - 1;
+      if(num_missing > 0)
+      {
+        missing += num_missing;
+        r.some_missing = true;
+        r.first_missing = s0 + 1;
+        r.last_missing = s1 - 1;
+      }
     }
     seen.erase(seen.begin());
   }
 
-  void add(nat seq)
+  result add(nat seq)
   {
+    result r;
+
     if(seen.find(seq) == seen.end())
     {
       original ++;
-      if(seen.size() == m) remove();
+      if(seen.size() == m) remove(r);
       seen.insert(seq);
     }
     else
     {
       duplicates ++;
+      r.is_duplicate = true;
     }
+    return r;
   }
 
   uint64_t get_duplicates() const { return duplicates; }
@@ -285,9 +305,18 @@ public:
         seq = ph.sequence;
         if(!count || seq < seq_min) seq_min = seq;
         if(!count || seq > seq_max) seq_max = seq;
-        if(count && seq < seq_last) out_of_order ++;
+        if(count && seq < seq_last)
+        {
+          status = "ooo";
+          out_of_order ++;
+        }
         seq_last = seq;
-        mc.add(seq);
+        miss_checker::result r = mc.add(seq);
+        if(r.is_duplicate) status += "-dup";
+        if(r.some_missing)
+        {
+          log << "# missing " << (r.last_missing - r.first_missing + 1) << " " << r.first_missing << " " << r.last_missing << "\n";
+        }
 
         t_tx = ph.timestamp;
         wprng w(ph.check);
@@ -295,7 +324,7 @@ public:
         if(ph.size != m)
         {
           truncated ++;
-          status = "trunc";
+          status += "trunc";
           break;
         }
         
@@ -354,8 +383,8 @@ public:
       "  Bandwidth ................................ " << 8e-6 * byte_count / dt << " Mbit/s\n"
       "  Packets with bad checksum ................ " << bad_checksum           << " pk\n"
       "  Truncated packets ........................ " << truncated              << " pk\n"
-      "  Highest sequence # ....................... " << seq_min                << "\n"
-      "  Lowest sequence # ........................ " << seq_max                << "\n"
+      "  Lowest sequence # ........................ " << seq_min                << "\n"
+      "  Highest sequence # ....................... " << seq_max                << "\n"
       "  Out of order packets ..................... " << out_of_order           << " pk\n"
       "  Decodable packets ........................ " << decodable_count        << " pk\n"
       "  Decodable loss ratio ..................... " << p_loss_ratio           << "\n"
@@ -380,17 +409,18 @@ int main(int argc, char* argv[]) //{{{
   typedef const char *option;
   
   string s_ip = "0.0.0.0";
-  nat s_port = 0;
+  nat s_port = 33333;
   string d_ip;
   nat d_port = 33333;
   nat count = 0;
   bool verbose = false;
-  string log_file = "tx.log";
+  string log_file;
   double bandwidth = 0;
   double detailed_every = 0;
   nat avg_window = 10000, max_window = 10000, miss_window = 50;
   bool transmit = false, receive = false;
   size_t rx_buf_size = 10000;
+  double p_loss = 0.0;
 #if HAVE_SO_NO_CHECK
   bool no_check = true;
 #endif
@@ -399,25 +429,26 @@ int main(int argc, char* argv[]) //{{{
 
   po::options_description desc("Available options");
   desc.add_options()
+    ("help,h",                                                            "Display this information")
     ("tx",              po::bool_switch(&transmit),                       "Transmit packets")
     ("rx",              po::bool_switch(&receive),                        "Receive packets")
-    ("help,h",                                                            "Display this information")
     ("sip",             po::value<string>(&s_ip),                         "Source IP to bind to")
-    ("sport",           po::value<nat>(&s_port) bpo_required,             "Source port to bind to")
-    ("dip",             po::value<string>(&d_ip) bpo_required,            "Destination IP to transmit to")
-    ("dport",           po::value<nat>(&d_port) bpo_required,             "Destination port to transmit to")
-    ("size",            po::value< vector<distribution::ptr> >() bpo_required,
+    ("sport",           po::value<nat>(&s_port),                          "Source port to bind to")
+    ("dip",             po::value<string>(&d_ip),                         "Destination IP to transmit to")
+    ("dport",           po::value<nat>(&d_port),                          "Destination port to transmit to")
+    ("size",            po::value< vector<distribution::ptr> >(),
                                                                           "Add a packet size distribution")
-    ("delay",           po::value< vector<distribution::ptr> >() bpo_required,
+    ("delay",           po::value< vector<distribution::ptr> >(),
                                                                           "Add a packet transmission delay distribution (ms)")
     ("bandwidth",       po::value<double>(&bandwidth),                    "Adjust delay or packet size to bandwidth (Mbit/s)") 
     ("count",           po::value<nat>(&count),                           "Number of packets to send, or 0 for no limit)")
     ("verbose",         po::bool_switch(&verbose),                        "Display each packet as it is sent")
     ("detailed-every",  po::value<double>(&detailed_every),               "Display detailed statistics every so many seconds")
     ("log-file",        po::value<string>(&log_file),                     "Log file")
+    ("p-loss",          po::value<double>(&p_loss),                       "Simulated packet loss probability")
     ("avg-window",      po::value<nat>(&avg_window),                      "Size of running average window in packets")
     ("max-window",      po::value<nat>(&max_window),                      "Size of maximum window in packets")
-    ("miss-window",    po::value<nat>(&miss_window),              "Size of window for detecting lost packets")
+    ("miss-window",     po::value<nat>(&miss_window),                     "Size of window for detecting lost packets")
     ("rx-buffer-size",  po::value<size_t>(&rx_buf_size),                  "Reception buffer size")
 #if HAVE_SO_NO_CHECK
     ("no-check",        po::bool_switch(&no_check),                       "Disable UDP checksumming")
@@ -451,18 +482,20 @@ int main(int argc, char* argv[]) //{{{
     // Check mode
     if(!(transmit || receive))
     {
-      cerr << progname << ": specify --tx or --rx" << endl;
+      cerr << progname << ": Error, specify --tx or --rx" << endl;
       return 1;
     }
 
     using as::ip::udp;
     as::io_service io;
 
+    if(log_file.empty()) log_file = transmit ? "tx.log" : "rx.log";
+
     if(transmit)
     {
       if(d_ip.empty())
       {
-        cerr << "Error: no destination IP" << endl;
+        cerr << progname << ": Error, no destination IP" << endl;
         return 1;
       }
 
@@ -520,17 +553,17 @@ int main(int argc, char* argv[]) //{{{
       
       if(!have_delays && !have_sizes && bandwidth == 0)
       {
-        cerr << "Error: no delay, size nor bandwidth specified" << endl;
+        cerr << progname << ": Error, no delay, size nor bandwidth specified" << endl;
         return 1;
       }
       if((!have_delays || !have_sizes) && bandwidth == 0)
       {
-        cerr << "Error: no bandwidth speicifed" << endl;
+        cerr << progname << ": Error, no bandwidth speicifed" << endl;
         return 1;
       }
       if(bandwidth > 0 && have_delays && have_sizes)
       {
-        cerr << "Error: cannot specify all three of bandwidth, delays and sizes." << endl;
+        cerr << progname << ": Error, cannot specify all three of bandwidth, delays and sizes." << endl;
         return 1;
       }
 
@@ -580,10 +613,12 @@ int main(int argc, char* argv[]) //{{{
         {
           delay = 1e3 * double(size_avg) / (1e6/8.0 * bandwidth);
         }
-
-        if(!have_sizes)
+        else
         {
-          size = double(delay_avg) * 1e-3 * (1e6/8.0 * bandwidth);
+          if(!have_sizes)
+          {
+            size = double(delay_avg) * 1e-3 * (1e6/8.0 * bandwidth);
+          }
         }
 
         if(size <= 0) continue;
@@ -595,10 +630,15 @@ int main(int argc, char* argv[]) //{{{
           t.expires_at(
             microsecond_timer::as_posix(t0 + sent * delay * 1e3)
           );
-        socket.send_to(boost::asio::buffer(buf), receiver_endpoint);
+
+        if(p_loss == 0 || drand48() >= p_loss)
+          socket.send_to(boost::asio::buffer(buf), receiver_endpoint);
+
         if(verbose) cerr << size << " " << delay << endl;
+
         bytes += size;
         stat.add(size);
+
         if(delay > 0) t.wait();
       }
       cout << "Total: " << stat << endl;
@@ -667,18 +707,18 @@ int main(int argc, char* argv[]) //{{{
   }
   catch(po::error& e)
   {
-    cerr << "Error: " << e.what() << endl;
+    cerr << progname << ": Error: " << e.what() << endl;
     cerr << desc << endl;
     return 1;
   }
   catch(exception& e)
   {
-    cerr << "Error: " << e.what() << endl;
+    cerr << progname << ": Exception: " << e.what() << endl;
     return 1;
   }
   catch(...)
   {
-    cerr << "Error: Unknown error." << endl;
+    cerr << progname << ": Unknown exception." << endl;
     return 2;
   }
 
