@@ -1,4 +1,4 @@
-// udpflood
+// udptool
 //
 // Author: Berke Durak <berke.durak@gmail.com>
 
@@ -51,7 +51,7 @@ public:
   packet_transmitter(const string& log_file) :
     log(log_file), seq(0)
   {
-    log << "t_tx size seq" << endl;
+    log << "t_rx size seq" << endl;
   }
 
   virtual ~packet_transmitter() { } 
@@ -185,6 +185,144 @@ void validate(boost::any& v,
   v = content;
 }
 
+class packet_receiver
+{
+  ofstream log; 
+  uint64_t seq_min, seq_max, seq_last, out_of_order, count, decodable_count,
+           byte_count, bad_checksum, truncated, total_errors, total_erroneous;
+  int64_t t_first, t_last;
+  rtclock clk;
+
+public:
+  packet_receiver(const string& log_file) :
+    log(log_file), seq_min(0), seq_max(0), seq_last(0), out_of_order(0),
+    count(0), decodable_count(0), byte_count(0), bad_checksum(0), truncated(0),
+    total_errors(0), total_erroneous(0)
+  {
+    log << "t_rx size status seq t_tx errors" << endl;
+  }
+
+  virtual ~packet_receiver() { } 
+
+  void receive(const char *buffer, const size_t m0)
+  {
+    const int64_t t_rx = clk.get();
+    string status = "ok";
+    uint32_t seq = 0;
+    uint64_t t_tx = 0;
+    uint32_t errors = 0;
+
+    const string u(buffer, m0);
+    size_t m = m0;
+    stringstream s(u, ios_base::in);
+     
+    do
+    {
+      if(m0 < sizeof(packet_header))
+      {
+        status = "short";
+        break;
+      }
+
+      if(!count)
+      {
+        t_first = t_rx;
+      }
+      t_last = t_rx;
+
+      try
+      {
+        packet_header ph(s, m);
+
+        if(!ph.checksum_valid())
+        {
+          status = "bad";
+          bad_checksum ++;
+          break;
+        }
+
+        seq = ph.sequence;
+        if(!count || seq < seq_min) seq_min = seq;
+        if(!count || seq > seq_max) seq_max = seq;
+        if(count && seq != seq_last + 1) out_of_order ++;
+        seq_last = seq;
+
+        t_tx = ph.timestamp;
+        wprng w(ph.check);
+
+        if(ph.size != m)
+        {
+          truncated ++;
+          status = "trunc";
+          break;
+        }
+        
+        decodable_count ++;
+
+        for(nat i = 0; i < m; i ++)
+        {
+          uint8_t expected_byte, received_byte;
+
+          expected_byte = w.get();
+          received_byte = s.get();
+
+          if(expected_byte != received_byte) errors ++;
+        }
+        if(errors > 0)
+        {
+          total_erroneous ++;
+          total_errors += errors;
+        }
+      }
+      catch(packet_header::encoding_error& e)
+      {
+        status = "bad";
+      }
+    }
+    while(false);
+
+    byte_count += m0;
+    count ++;
+
+    log << t_rx << " " << m-0 << " " << status << " " << seq << " " << t_tx << " " << errors << "\n";
+  }
+
+  void output(ostream& out) const
+  {
+    if(!count)
+    {
+      out << "No packets received";
+      return;
+    }
+
+    double dt = (t_last - t_first)/1e6;
+
+    out <<
+      "RX statistics:\n"
+      "  Total packets ............................ " << count                  << " pk\n"
+      "  Total bytes .............................. " << byte_count             << " B\n"
+      "  Time ..................................... " << dt                     << " s\n"
+      "  Packet rate .............................. " << count / dt             << " pk/s\n"
+      "  Bandwidth ................................ " << 8e-6 * byte_count / dt << " Mbit/s\n"
+      "  Packets with bad checksum ................ " << bad_checksum           << " pk\n"
+      "  Truncated packets ........................ " << truncated              << " pk\n"
+      "  Highest sequence # ....................... " << seq_min                << "\n"
+      "  Lowest sequence # ........................ " << seq_max                << "\n"
+      "  Out of order packets ..................... " << out_of_order           << " pk\n"
+      "  Decodable packets ........................ " << decodable_count        << " pk\n"
+      "  Decodable loss ratio ..................... " << 1 - (double(decodable_count) / (seq_max - seq_min + 1)) << "\n"
+      "  Payload byte errors ...................... " << total_errors           << " B\n"
+      "  Decodables with erroneous payloads........ " << total_erroneous        << " pk"
+    ;
+  }
+
+  friend ostream& operator<<(ostream& out, const packet_receiver& self)
+  {
+    self.output(out);
+    return out;
+  }
+
+};
 
 int main(int argc, char* argv[]) //{{{
 {
@@ -198,14 +336,16 @@ int main(int argc, char* argv[]) //{{{
   bool verbose = false;
   string log_file = "tx.log";
   double bandwidth = 0;
+  double detailed_every = 0;
   nat avg_window = 10000, max_window = 10000;
-  double p_loss = 0.0;
 #if HAVE_SO_NO_CHECK
   bool no_check = true;
 #endif
 
   po::options_description desc("Available options");
   desc.add_options()
+    ("tx",            po::bool_switch(&transmit),                       "Transmit packets")
+    ("rx",            po::bool_switch(&receive),                        "Receive packets")
     ("help,h",                                                          "Display this information")
     ("sip",           po::value<string>(&s_ip),                         "Source IP to bind to")
     ("sport",         po::value<nat>(&s_port) bpo_required,             "Source port to bind to")
@@ -221,7 +361,7 @@ int main(int argc, char* argv[]) //{{{
     ("log-file",      po::value<string>(&log_file),                     "Log file")
     ("avg-window",    po::value<nat>(&avg_window),                      "Size of running average window in packets")
     ("max-window",    po::value<nat>(&max_window),                      "Size of maximum window in packets")
-    ("p-loss",        po::value<double>(&p_loss),                       "Simulated packet loss probability")
+    ("detailed-every", po::value<double>(&detailed_every),        "Display detailed statistics every so many seconds")
 #if HAVE_SO_NO_CHECK
     ("no-check",      po::bool_switch(&no_check),                       "Disable UDP checksumming")
 #endif
@@ -235,10 +375,10 @@ int main(int argc, char* argv[]) //{{{
     default_delay = 1
   };
 
-  srand48(microsecond_timer::get());
-
   try
   {
+    // Parse command-line options
+
     po::variables_map vm;
     po::store(
         po::command_line_parser(argc, argv).options(desc).run(),
@@ -270,7 +410,6 @@ int main(int argc, char* argv[]) //{{{
       cout << "Opening socket" << endl;
       udp::endpoint src(as::ip::address::from_string(s_ip), s_port);
       udp::socket socket(io, src);
-#if 0
 #if HAVE_SO_NO_CHECK
       if(no_check)
       {
@@ -285,7 +424,6 @@ int main(int argc, char* argv[]) //{{{
           throw runtime_error(u);
         }
       }
-#endif
 #endif
 
       packet_transmitter tx(log_file);
@@ -392,8 +530,7 @@ int main(int argc, char* argv[]) //{{{
           t.expires_at(
             microsecond_timer::as_posix(t0 + sent * delay * 1e3)
           );
-        if(p_loss == 0 || drand48() >= p_loss)
-          socket.send_to(boost::asio::buffer(buf), receiver_endpoint);
+        socket.send_to(boost::asio::buffer(buf), receiver_endpoint);
         if(verbose) cerr << size << " " << delay << endl;
         bytes += size;
         stat.add(size);
