@@ -19,9 +19,9 @@ struct packet_header
 
   class encoding_error { };
 
-  packet_header(rtclock& rtc, uint32_t size_, uint32_t sequence_) :
+  packet_header(uint32_t timestamp_, uint32_t size_, uint32_t sequence_) :
     sequence(sequence_),
-    timestamp(rtc.get()),
+    timestamp(timestamp_),
     size(size_),
     check(get_checksum())
   {

@@ -51,7 +51,7 @@ public:
   packet_transmitter(const string& log_file) :
     log(log_file), seq(0)
   {
-    log << "t_rx size seq" << endl;
+    log << "t_tx size seq" << endl;
   }
 
   virtual ~packet_transmitter() { } 
@@ -62,7 +62,7 @@ public:
     log << t_tx << " " << m0 << " " << seq << "\n";
     if(m0 < packet_header::encoded_size) return;
     size_t m = m0;
-    packet_header ph(clk, m0 - packet_header::encoded_size, seq);
+    packet_header ph(uint32_t(t_tx), m0 - packet_header::encoded_size, seq);
     stringstream s;
     ph.encode(s, m);
     wprng w(ph.check);
@@ -355,7 +355,7 @@ public:
     byte_count += m0;
     count ++;
 
-    log << t_rx << " " << m-0 << " " << status << " " << seq << " " << t_tx << " " << errors << "\n";
+    log << t_rx << " " << m0 << " " << status << " " << seq << " " << t_tx << " " << errors << "\n";
   }
 
   void output(ostream& out) const
