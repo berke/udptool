@@ -199,6 +199,9 @@ int main(int argc, char* argv[]) //{{{
   string log_file = "tx.log";
   double bandwidth = 0;
   nat avg_window = 10000, max_window = 10000;
+#if HAVE_SO_NO_CHECK
+  bool no_check = true;
+#endif
 
   po::options_description desc("Available options");
   desc.add_options()
@@ -215,8 +218,11 @@ int main(int argc, char* argv[]) //{{{
     ("count",         po::value<nat>(&count),                           "Number of packets to send, or 0 for no limit)")
     ("verbose",       po::bool_switch(&verbose),                        "Display each packet as it is sent")
     ("log-file",      po::value<string>(&log_file),                     "Log file")
-    ("avg-window",     po::value<nat>(&avg_window),               "Size of running average window in packets")
-    ("max-window",     po::value<nat>(&max_window),               "Size of maximum window in packets")
+    ("avg-window",    po::value<nat>(&avg_window),                      "Size of running average window in packets")
+    ("max-window",    po::value<nat>(&max_window),                      "Size of maximum window in packets")
+#if HAVE_SO_NO_CHECK
+    ("no-check",      po::bool_switch(&no_check),                       "Disable UDP checksumming")
+#endif
   ;
 
   enum
@@ -261,14 +267,18 @@ int main(int argc, char* argv[]) //{{{
       udp::endpoint src(as::ip::address::from_string(s_ip), s_port);
       udp::socket socket(io, src);
 #if HAVE_SO_NO_CHECK
-      as::socket_base_extra::no_check opt(false);
-      boost::system::error_code ec;
-      socket.set_option(opt, ec);
-      if(ec)
+      if(no_check)
       {
-        string u = "Cannot set NO_CHECK option: ";
-        u += ec.message();
-        throw runtime_error(u);
+        cout << "Disabling UDP checksumming" << endl;
+        as::socket_base_extra::no_check opt(false);
+        boost::system::error_code ec;
+        socket.set_option(opt, ec);
+        if(ec)
+        {
+          string u = "Cannot set NO_CHECK option: ";
+          u += ec.message();
+          throw runtime_error(u);
+        }
       }
 #endif
 

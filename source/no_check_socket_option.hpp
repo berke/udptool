@@ -5,7 +5,7 @@
 #ifndef NO_CHECK_SOCKET_OPTION_HPP_20100722
 #define NO_CHECK_SOCKET_OPTION_HPP_20100722
 
-#ifdef __LINUX__
+#ifdef __linux__
 
   #define HAVE_SO_NO_CHECK 1
 
