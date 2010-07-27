@@ -41,42 +41,6 @@ string to_string(nat& n)
   return u.str();
 }
 
-class packet_transmitter
-{
-  ofstream log; 
-  uint64_t seq;
-  rtclock clk;
-
-public:
-  packet_transmitter(const string& log_file) :
-    log(log_file), seq(0)
-  {
-    log << "t_tx size seq" << endl;
-  }
-
-  virtual ~packet_transmitter() { } 
-
-  void transmit(char *buffer, const size_t m0)
-  {
-    int64_t t_tx = clk.get();
-    log << t_tx << " " << m0 << " " << seq << "\n";
-    if(m0 < packet_header::encoded_size) return;
-    size_t m = m0;
-    packet_header ph(uint32_t(t_tx), m0 - packet_header::encoded_size, seq);
-    stringstream s;
-    ph.encode(s, m);
-    wprng w(ph.check);
-    for(nat i = 0; i < m; i ++)
-    {
-       s.put(w.get());
-    }
-    const string u = s.str();
-    assert(m0 == u.size());
-    memcpy(buffer, u.c_str(), m0);
-    seq ++;
-  }
-};
-
 class distribution
 {
 protected:
@@ -184,6 +148,82 @@ void validate(boost::any& v,
   }
   v = content;
 }
+
+struct our_options
+{
+  string s_ip, d_ip;
+  nat port, tx_src_port;
+  nat count;
+  bool verbose;
+  string log_file;
+  double bandwidth;
+  double detailed_every;
+  nat avg_window, max_window, miss_window;
+  bool transmit, receive;
+  size_t rx_buf_size;
+  double p_loss;
+#if HAVE_SO_NO_CHECK
+  bool no_check;
+#endif
+  vector<distribution::ptr> sizes, delays;
+
+  our_options() :
+    s_ip("0.0.0.0"),
+    port(33333),
+    tx_src_port(0),
+    count(0),
+    verbose(false),
+    log_file(""),
+    bandwidth(0),
+    detailed_every(5.0),\
+    avg_window(10000), max_window(10000), miss_window(50),
+    transmit(false), receive(false),
+    rx_buf_size(10000),
+    p_loss(0),
+#if HAVE_SO_NO_CHECK
+    no_check(false)
+#endif
+  {
+  }
+};
+
+static our_options opt;
+
+class packet_transmitter
+{
+  ofstream log; 
+  uint64_t seq;
+  rtclock clk;
+
+public:
+  packet_transmitter(const string& log_file) :
+    log(log_file), seq(0)
+  {
+    log << "t_tx size seq" << endl;
+  }
+
+  virtual ~packet_transmitter() { } 
+
+  void transmit(char *buffer, const size_t m0)
+  {
+    int64_t t_tx = clk.get();
+    log << t_tx << " " << m0 << " " << seq << "\n";
+    if(m0 < packet_header::encoded_size) return;
+    size_t m = m0;
+    packet_header ph(uint32_t(t_tx), m0 - packet_header::encoded_size, seq);
+    stringstream s;
+    ph.encode(s, m);
+    wprng w(ph.check);
+    for(nat i = 0; i < m; i ++)
+    {
+       s.put(w.get());
+    }
+    const string u = s.str();
+    assert(m0 == u.size());
+    memcpy(buffer, u.c_str(), m0);
+    seq ++;
+  }
+};
 
 class miss_checker
 {
@@ -404,54 +444,74 @@ public:
 
 };
 
-int main(int argc, char* argv[]) //{{{
+const char *progname = "";
+
+#if 0
+class link_packet_receiver
 {
-  typedef const char *option;
-  
-  string s_ip = "0.0.0.0";
-  string d_ip;
-  nat port = 33333,
-      tx_src_port = 0;
-  nat count = 0;
-  bool verbose = false;
-  string log_file;
-  double bandwidth = 0;
-  double detailed_every = 5.0;
-  nat avg_window = 10000, max_window = 10000, miss_window = 50;
-  bool transmit = false, receive = false;
-  size_t rx_buf_size = 10000;
-  double p_loss = 0.0;
-#if HAVE_SO_NO_CHECK
-  bool no_check = true;
+  link_statistic stat(avg_window, max_window);
+  nat received = 0;
+  packet_receiver rx(log_file, miss_window);
+  microsecond_timer::microseconds t_last = microsecond_timer::get(), t_last_detailed = t_last;;
+
+  void receive(microsecond_timer::microseconds t_now, const char *buffer, size_t size)
+  {
+    stat.add(size);
+    rx.receive(buffer, size);
+    received ++;
+
+    if(received % display_every == 0)
+    {
+      if(t_now - t_last >= display_delay_microseconds)
+      {
+        cout << "Received: " << stat << endl;
+        t_last = t_now;
+      }
+      if(detailed_every > 0 && t_now - t_last_detailed >= detailed_every * 1e6)
+      {
+        cout << rx << endl;
+        t_last_detailed = t_now;
+      }
+    }
+  }
+
+  void finish()
+  {
+    cout << "Finally: " << stat << endl;
+    cout << rx << endl;
+  }
+};
 #endif
 
-  const char *progname = argv[0];
+int main(int argc, char* argv[]) //{{{
+{
+  // typedef const char *option;
+  
+  progname = argv[0];
 
   po::options_description desc("Available options");
   desc.add_options()
     ("help,h",                                                            "Display this information")
-    ("tx",              po::bool_switch(&transmit),                       "Transmit packets")
-    ("rx",              po::bool_switch(&receive),                        "Receive packets")
-    ("sip",             po::value<string>(&s_ip),                         "Source IP to bind to")
-    ("dip",             po::value<string>(&d_ip),                         "Destination IP to transmit to")
-    ("port",            po::value<nat>(&port),                            "Target port (default 33333)")
-    ("size",            po::value< vector<distribution::ptr> >(),
-                                                                          "Add a packet size distribution")
-    ("delay",           po::value< vector<distribution::ptr> >(),
-                                                                          "Add a packet transmission delay distribution (ms)")
-    ("bandwidth",       po::value<double>(&bandwidth),                    "Adjust delay or packet size to bandwidth (Mbit/s)") 
-    ("count",           po::value<nat>(&count),                           "Number of packets to send, or 0 for no limit)")
-    ("verbose",         po::bool_switch(&verbose),                        "Display each packet as it is sent")
-    ("detailed-every",  po::value<double>(&detailed_every),               "Display detailed statistics every so many seconds")
-    ("log-file",        po::value<string>(&log_file),                     "Log file")
-    ("p-loss",          po::value<double>(&p_loss),                       "Simulated packet loss probability")
-    ("avg-window",      po::value<nat>(&avg_window),                      "Size of running average window in packets")
-    ("max-window",      po::value<nat>(&max_window),                      "Size of maximum window in packets")
-    ("miss-window",     po::value<nat>(&miss_window),                     "Size of window for detecting lost packets")
-    ("rx-buffer-size",  po::value<size_t>(&rx_buf_size),                  "Reception buffer size")
-    ("tx-src-port",     po::value<nat>(&tx_src_port),                     "Use a particular transmission source port")
+    ("tx",              po::bool_switch(&opt.transmit),           "Transmit packets")
+    ("rx",              po::bool_switch(&opt.receive),            "Receive packets")
+    ("sip",             po::value<string>(&opt.s_ip),             "Source IP to bind to")
+    ("dip",             po::value<string>(&opt.d_ip),             "Destination IP to transmit to")
+    ("port",            po::value<nat>(&opt.port),                "Target port (default 33333)")
+    ("size",            po::value< vector<distribution::ptr> >(),         "Add a packet size distribution")
+    ("delay",           po::value< vector<distribution::ptr> >(),         "Add a packet transmission delay distribution (ms)")
+    ("bandwidth",       po::value<double>(&opt.bandwidth),        "Adjust delay or packet size to bandwidth (Mbit/s)") 
+    ("count",           po::value<nat>(&opt.count),               "Number of packets to send, or 0 for no limit)")
+    ("verbose",         po::bool_switch(&opt.verbose),            "Display each packet as it is sent")
+    ("detailed-every",  po::value<double>(&opt.detailed_every),   "Display detailed statistics every so many seconds")
+    ("log-file",        po::value<string>(&opt.log_file),         "Log file")
+    ("p-loss",          po::value<double>(&opt.p_loss),           "Simulated packet loss probability")
+    ("avg-window",      po::value<nat>(&opt.avg_window),          "Size of running average window in packets")
+    ("max-window",      po::value<nat>(&opt.max_window),          "Size of maximum window in packets")
+    ("miss-window",     po::value<nat>(&opt.miss_window),         "Size of window for detecting lost packets")
+    ("rx-buffer-size",  po::value<size_t>(&opt.rx_buf_size),      "Reception buffer size")
+    ("tx-src-port",     po::value<nat>(&opt.tx_src_port),         "Use a particular transmission source port")
 #if HAVE_SO_NO_CHECK
-    ("no-check",        po::bool_switch(&no_check),                       "Disable UDP checksumming")
+    ("no-check",        po::bool_switch(&opt.no_check),           "Disable UDP checksumming")
 #endif
   ;
 
@@ -466,7 +526,6 @@ int main(int argc, char* argv[]) //{{{
   try
   {
     // Parse command-line options
-
     po::variables_map vm;
     po::store(
         po::command_line_parser(argc, argv).options(desc).run(),
@@ -480,7 +539,7 @@ int main(int argc, char* argv[]) //{{{
     }
 
     // Check mode
-    if(!(transmit || receive))
+    if(!(opt.transmit || opt.receive))
     {
       cerr << progname << ": Error, specify --tx or --rx" << endl;
       return 1;
@@ -489,27 +548,27 @@ int main(int argc, char* argv[]) //{{{
     using as::ip::udp;
     as::io_service io;
 
-    if(log_file.empty()) log_file = transmit ? "tx.log" : "rx.log";
+    if(opt.log_file.empty()) opt.log_file = opt.transmit ? "tx.log" : "rx.log";
 
-    if(transmit)
+    if(opt.transmit)
     {
-      if(d_ip.empty())
+      if(opt.d_ip.empty())
       {
         cerr << progname << ": Error, no destination IP" << endl;
         return 1;
       }
 
       // Resolve destination address
-      cout << "Resolving " << d_ip << " port " << port << endl;
+      cout << "Resolving " << opt.d_ip << " port " << opt.port << endl;
       udp::resolver resolver(io);
-      udp::resolver::query query(udp::v4(), d_ip, to_string(port));
+      udp::resolver::query query(udp::v4(), opt.d_ip, to_string(opt.port));
       udp::endpoint receiver_endpoint = *resolver.resolve(query);
 
       cout << "Opening socket" << endl;
-      udp::endpoint src(as::ip::address::from_string(s_ip), tx_src_port);
+      udp::endpoint src(as::ip::address::from_string(opt.s_ip), opt.tx_src_port);
       udp::socket socket(io, src);
 #if HAVE_SO_NO_CHECK
-      if(no_check)
+      if(opt.no_check)
       {
         cout << "Disabling UDP checksumming" << endl;
         as::socket_base_extra::no_check opt(false);
@@ -524,18 +583,16 @@ int main(int argc, char* argv[]) //{{{
       }
 #endif
 
-      packet_transmitter tx(log_file);
+      packet_transmitter tx(opt.log_file);
 
       nat sent = 0;
       microsecond_timer::microseconds t_last = microsecond_timer::get();
       size_t bytes = 0;
 
-      link_statistic stat(avg_window, max_window);
+      link_statistic stat(opt.avg_window, opt.max_window);
 
       cout << "Starting flood" << endl;
       boost::asio::deadline_timer t(io);
-
-      vector<distribution::ptr> sizes, delays;
 
       {
         po::variable_value size_v = vm["size"],
