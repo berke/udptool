@@ -409,14 +409,14 @@ int main(int argc, char* argv[]) //{{{
   typedef const char *option;
   
   string s_ip = "0.0.0.0";
-  nat s_port = 33333;
+  nat s_port = 0;
   string d_ip;
   nat d_port = 33333;
   nat count = 0;
   bool verbose = false;
   string log_file;
   double bandwidth = 0;
-  double detailed_every = 0;
+  double detailed_every = 5.0;
   nat avg_window = 10000, max_window = 10000, miss_window = 50;
   bool transmit = false, receive = false;
   size_t rx_buf_size = 10000;
