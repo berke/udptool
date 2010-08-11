@@ -168,7 +168,7 @@ struct our_options
   nat port, tx_src_port;
   nat count;
   bool verbose;
-  string log_file;
+  string log_file_prefix, log_file_suffix;
   double bandwidth;
   double summary_every, detailed_every;
   nat avg_window, max_window, miss_window;
@@ -186,7 +186,6 @@ struct our_options
     tx_src_port(0),
     count(0),
     verbose(false),
-    log_file(""),
     bandwidth(0),
     summary_every(1.0),
     detailed_every(5.0),
@@ -309,11 +308,14 @@ class packet_receiver
   miss_checker mc;
 
 public:
+  typedef boost::shared_ptr<packet_receiver> ptr;
+
   packet_receiver(const string& log_file, nat miss_window) :
     log(log_file), seq_min(0), seq_max(0), seq_last(0), out_of_order(0),
     count(0), decodable_count(0), byte_count(0), bad_checksum(0), truncated(0),
     total_errors(0), total_erroneous(0), mc(miss_window)
   {
+    cout << "Logging to " << log_file << endl;
     log << "t_rx size status seq t_tx errors" << endl;
   }
 
@@ -515,11 +517,11 @@ class receiver
   udp::endpoint src;
   udp::socket socket;
   boost::system::error_code ec;
-  link_statistic stat;
   vector<char> buf;
-  packet_receiver rx;
+  link_statistic::ptr stat;
+  packet_receiver::ptr rx;
   nat received;
-  udp::endpoint remote;
+  udp::endpoint remote, last_remote;
   periodic summary, detailed;
 
 public:
@@ -527,9 +529,7 @@ public:
     io(io_),
     src(as::ip::address::from_string(opt.s_ip), opt.port),
     socket(io, src),
-    stat(opt.avg_window, opt.max_window),
     buf(opt.rx_buf_size),
-    rx(opt.log_file, opt.miss_window),
     received(0),
     summary(io, opt.summary_every, boost::bind(&receiver::display_summary, this)),
     detailed(io, opt.detailed_every, boost::bind(&receiver::display_detailed, this))
@@ -539,10 +539,20 @@ public:
     setup_receive();
   }
 
+  void display_residual_statistics()
+  {
+    if(stat && rx)
+    {
+      cout << "Finally: " << *stat << endl;
+      cout << "  Remote address: .......................... " << remote << endl;
+      cout << "  Local address: ........................... " << src << endl;
+      if(rx)   cout << *rx   << endl;
+    }
+  }
+
   ~receiver()
   {
-    cout << "Finally: " << stat << endl;
-    cout << rx << endl;
+    display_residual_statistics();
   }
 
   void set_no_check()
@@ -561,12 +571,12 @@ public:
 
   void display_summary()
   {
-    cout << "Received: " << stat << endl;
+    if(stat) cout << "Received: " << *stat << endl;
   }
 
   void display_detailed()
   {
-    cout << rx << endl;
+    if(rx) cout << *rx << endl;
   }
 
   void setup_receive()
@@ -584,6 +594,14 @@ public:
       );
   }
 
+  void reset()
+  {
+    stringstream log_file;
+    log_file << opt.log_file_prefix << "udp-" << remote << "-to-" << src << opt.log_file_suffix;
+    rx   = packet_receiver::ptr(new packet_receiver(log_file.str(), opt.miss_window));
+    stat = link_statistic::ptr(new link_statistic(opt.avg_window, opt.max_window));
+  }
+
   void handle_receive_from(const boost::system::error_code& ec, size_t size)
   {
     if(ec)
@@ -592,8 +610,15 @@ public:
     }
     else
     {
-      stat.add(size);
-      rx.receive(buf.data(), size);
+      if(remote != last_remote)
+      {
+        display_residual_statistics();
+        cout << "Receiving data from " << remote << endl;
+        last_remote = remote;
+        reset();
+      }
+      stat->add(size);
+      rx->receive(buf.data(), size);
       received ++;
     }
     setup_receive();
@@ -640,7 +665,9 @@ public:
       }
     #endif
 
-    packet_transmitter tx(opt.log_file);
+    stringstream log_file;
+    log_file << opt.log_file_prefix << "udp-" << src << "-to-" << receiver_endpoint << opt.log_file_suffix;
+    packet_transmitter tx(log_file.str());
 
     nat sent = 0;
     microsecond_timer::microseconds t_last = microsecond_timer::get();
@@ -777,7 +804,8 @@ int main(int argc, char* argv[])
     ("verbose",         po::bool_switch(&opt.verbose),            "Display each packet as it is sent")
     ("summary-every",   po::value<double>(&opt.summary_every),    "Display summary statistics every so many seconds")
     ("detailed-every",  po::value<double>(&opt.detailed_every),   "Display detailed statistics every so many seconds")
-    ("log-file",        po::value<string>(&opt.log_file),         "Log file")
+    ("log-file-prefix", po::value<string>(&opt.log_file_prefix),  "Prefix for log file names")
+    ("log-file-suffix", po::value<string>(&opt.log_file_suffix),  "Suffix for log file names")
     ("p-loss",          po::value<double>(&opt.p_loss),           "Simulated packet loss probability")
     ("avg-window",      po::value<nat>(&opt.avg_window),          "Size of running average window in packets")
     ("max-window",      po::value<nat>(&opt.max_window),          "Size of maximum window in packets")
@@ -819,7 +847,7 @@ int main(int argc, char* argv[])
     std::signal(SIGINT, sigint_handler);
 
     // Setup log file
-    if(opt.log_file.empty()) opt.log_file = opt.transmit ? "tx.log" : "rx.log";
+    if(opt.log_file_suffix.empty()) opt.log_file_suffix = opt.transmit ? ".txl" : ".rxl";
 
     if(opt.transmit)
     {

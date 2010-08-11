@@ -10,6 +10,7 @@
 
 #include <set>
 #include <boost/circular_buffer.hpp>
+#include <boost/shared_ptr.hpp>
 
 #include "shorthands.hpp"
 #include "microsecond_timer.hpp"
@@ -36,6 +37,8 @@ class link_statistic
   std::multiset<double> max_set;
 
 public:
+  typedef boost::shared_ptr<link_statistic> ptr;
+  
   /// Construct a link statistic computing object
   /// \param running_average_window Compute the average bandwidth over the last this many samples
   /// \param maximum_window         Compute the maximum bandwidth over the last this many samples
