@@ -39,21 +39,6 @@ static uint32_t curx_wprng_get(struct curx_wprng *g)
    return g->a;
 };
 
-void curx_init(struct curx_state *q)
-{
-   q->seq_min         = 0;
-   q->seq_max         = 0;
-   q->seq_last        = 0;
-   q->out_of_order    = 0;
-   q->count           = 0;
-   q->decodable_count = 0;
-   q->byte_count      = 0;
-   q->bad_checksum    = 0;
-   q->truncated       = 0;
-   q->total_errors    = 0;
-   q->total_erroneous = 0;
-}
-
 static void curx_ph_fix_endianness(struct curx_ph *h)
 {
    h->sequence  = ntohl(h->sequence);
@@ -104,7 +89,7 @@ static void curx_miss_checker_remove_oldest(struct curx_miss_checker *c, struct 
    }
    if(c->seen_size > 0)
    {
-      c->seen_start ++;
+      c->seen_start = (c->seen_start + 1) & CURX_MISS_CHECKER_WINDOW_MASK;
       c->seen_size --;
    }
 }
@@ -133,6 +118,22 @@ static void curx_miss_checker_add(struct curx_miss_checker *c, uint32_t seq)
       c->duplicates ++;
       r->is_duplicate = 1;
    }
+}
+
+void curx_init(struct curx_state *q)
+{
+   q->seq_min         = 0;
+   q->seq_max         = 0;
+   q->seq_last        = 0;
+   q->out_of_order    = 0;
+   q->count           = 0;
+   q->decodable_count = 0;
+   q->byte_count      = 0;
+   q->bad_checksum    = 0;
+   q->truncated       = 0;
+   q->total_errors    = 0;
+   q->total_erroneous = 0;
+   curx_miss_checker_init(&q->mc);
 }
 
 /* data   - Pointer to UDP payload data
