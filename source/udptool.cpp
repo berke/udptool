@@ -149,6 +149,14 @@ void validate(boost::any& v,
   v = content;
 }
 
+enum
+{
+ display_delay_microseconds = 1000000,
+ display_every = 100,
+ default_size  = 1472,
+ default_delay = 1
+};
+
 struct our_options
 {
   string s_ip, d_ip;
@@ -483,6 +491,87 @@ class link_packet_receiver
 };
 #endif
 
+using as::ip::udp;
+
+class receiver
+{
+   as::io_service& io;
+   udp::endpoint src;
+   udp::socket socket;
+   boost::system::error_code ec;
+   link_statistic stat;
+   vector<char> buf;
+   packet_receiver rx;
+
+public:
+   receiver(as::io_service& io_) :
+     io(io_),
+     src(as::ip::address::from_string(opt.s_ip), opt.port),
+     socket(io, src),
+     stat(opt.avg_window, opt.max_window),
+     buf(opt.rx_buf_size),
+     rx(opt.log_file, opt.miss_window)
+   {
+   }
+
+   void set_no_check()
+   {
+#if HAVE_SO_NO_CHECK
+      as::socket_base_extra::no_check ckopt(false);
+      socket.set_option(ckopt, ec);
+      if(ec)
+      {
+        string u = "Cannot set NO_CHECK option: ";
+        u += ec.message();
+        throw runtime_error(u);
+      }
+#endif
+   }
+
+   void run()
+   {
+      cout << "Listening on " << opt.port << endl;
+
+      set_no_check();
+
+      nat received = 0;
+      microsecond_timer::microseconds t_last = microsecond_timer::get(), t_last_detailed = t_last;
+
+      while(opt.count == 0 || received < opt.count)
+      {
+        udp::endpoint remote;
+        size_t size = socket.receive_from(boost::asio::buffer(buf), remote, 0, ec);
+        if(ec)
+        {
+          cout << "Reception error: " << ec.message() << endl;
+        }
+        else
+        {
+          stat.add(size);
+          rx.receive(buf.data(), size);
+          received ++;
+        }
+
+        if(received % display_every == 0)
+        {
+          microsecond_timer::microseconds t_now = microsecond_timer::get();
+          if(t_now - t_last >= display_delay_microseconds)
+          {
+            cout << "Received: " << stat << endl;
+            t_last = t_now;
+          }
+          if(opt.detailed_every > 0 && t_now - t_last_detailed >= opt.detailed_every * 1e6)
+          {
+            cout << rx << endl;
+            t_last_detailed = t_now;
+          }
+        }
+      }
+      cout << "Finally: " << stat << endl;
+      cout << rx << endl;
+   }
+};
+
 int main(int argc, char* argv[]) //{{{
 {
   // typedef const char *option;
@@ -514,14 +603,6 @@ int main(int argc, char* argv[]) //{{{
     ("no-check",        po::bool_switch(&opt.no_check),           "Disable UDP checksumming")
 #endif
   ;
-
-  enum
-  {
-    display_delay_microseconds = 1000000,
-    display_every = 100,
-    default_size  = 1472,
-    default_delay = 1
-  };
 
   try
   {
@@ -705,62 +786,8 @@ int main(int argc, char* argv[]) //{{{
     }
     else
     {
-      boost::system::error_code ec;
-
-      udp::endpoint src(as::ip::address::from_string(opt.s_ip), opt.port);
-      udp::socket socket(io, src);
-      cout << "Listening on " << opt.port << endl;
-
-#if HAVE_SO_NO_CHECK
-      as::socket_base_extra::no_check ckopt(false);
-      socket.set_option(ckopt, ec);
-      if(ec)
-      {
-        string u = "Cannot set NO_CHECK option: ";
-        u += ec.message();
-        throw runtime_error(u);
-      }
-#endif
-
-      link_statistic stat(opt.avg_window, opt.max_window);
-
-      nat received = 0;
-      vector<char> buf(opt.rx_buf_size);
-      packet_receiver rx(opt.log_file, opt.miss_window);
-      microsecond_timer::microseconds t_last = microsecond_timer::get(), t_last_detailed = t_last;
-
-      while(opt.count == 0 || received < opt.count)
-      {
-        udp::endpoint remote;
-        size_t size = socket.receive_from(boost::asio::buffer(buf), remote, 0, ec);
-        if(ec)
-        {
-          cout << "Reception error: " << ec.message() << endl;
-        }
-        else
-        {
-          stat.add(size);
-          rx.receive(buf.data(), size);
-          received ++;
-        }
-
-        if(received % display_every == 0)
-        {
-          microsecond_timer::microseconds t_now = microsecond_timer::get();
-          if(t_now - t_last >= display_delay_microseconds)
-          {
-            cout << "Received: " << stat << endl;
-            t_last = t_now;
-          }
-          if(opt.detailed_every > 0 && t_now - t_last_detailed >= opt.detailed_every * 1e6)
-          {
-            cout << rx << endl;
-            t_last_detailed = t_now;
-          }
-        }
-      }
-      cout << "Finally: " << stat << endl;
-      cout << rx << endl;
+      receiver rx(io);
+      rx.run();
     }
   }
   catch(po::error& e)
