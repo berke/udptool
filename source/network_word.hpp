@@ -1,6 +1,7 @@
 // network_word.hpp
 //
 // Author: Berke Durak <berke.durak@gmail.com>
+// vim:set ts=2 sw=2 foldmarker={,}:
 
 #ifndef NETWORK_WORD_HPP_20100721
 #define NETWORK_WORD_HPP_20100721

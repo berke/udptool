@@ -1,6 +1,7 @@
 // microsecond_timer.cpp
 //
 // Author: Berke Durak <berke.durak@gmail.com>
+// vim:set ts=2 sw=2 foldmarker={,}:
 
 #include <boost/date_time/gregorian/gregorian.hpp>
 

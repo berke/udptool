@@ -1,6 +1,7 @@
 // packet_header.hpp
 //
 // Author: Berke Durak <berke.durak@gmail.com>
+// vim:set ts=2 sw=2 foldmarker={,}:
 
 #ifndef PACKET_HEADER_HPP_20100721
 #define PACKET_HEADER_HPP_20100721o

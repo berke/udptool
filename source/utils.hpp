@@ -1,6 +1,7 @@
 // utils.hpp
 //
 // Author: Berke Durak <berke.durak@gmail.com>
+// vim:set ts=2 sw=2 foldmarker={,}:
 
 #ifndef UTILS_HPP_20100521
 #define UTILS_HPP_20100521

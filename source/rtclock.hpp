@@ -1,6 +1,7 @@
 // rtclock.hpp
 //
 // Author: Berke Durak <berke.durak@gmail.com>
+// vim:set ts=2 sw=2 foldmarker={,}:
 
 #ifndef RTCLOCK_HPP_20100721
 #define RTCLOCK_HPP_20100721

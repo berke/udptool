@@ -1,6 +1,7 @@
 // link_statistic.cpp
 //
 // Author: Berke Durak <berke.durak@gmail.com>
+// vim:set ts=2 sw=2 foldmarker={,}:
 
 #include "link_statistic.hpp"
 

@@ -1,6 +1,7 @@
 // link_statistic.hpp
 //
 // Author: Berke Durak <berke.durak@gmail.com>
+// vim:set ts=2 sw=2 foldmarker={,}:
 
 #ifndef LINK_STATISTIC_HPP_20100521
 #define LINK_STATISTIC_HPP_20100521

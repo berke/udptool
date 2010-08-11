@@ -1,6 +1,7 @@
 // no_check_socket_optin.hpp
 //
 // Author: Berke Durak <berke.durak@gmail.com>
+// vim:set ts=2 sw=2 foldmarker={,}:
 
 #ifndef NO_CHECK_SOCKET_OPTION_HPP_20100722
 #define NO_CHECK_SOCKET_OPTION_HPP_20100722
