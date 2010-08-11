@@ -455,43 +455,6 @@ public:
 
 const char *progname = "";
 
-#if 0
-class link_packet_receiver
-{
-  link_statistic stat(avg_window, max_window);
-  nat received = 0;
-  packet_receiver rx(log_file, miss_window);
-  microsecond_timer::microseconds t_last = microsecond_timer::get(), t_last_detailed = t_last;;
-
-  void receive(microsecond_timer::microseconds t_now, const char *buffer, size_t size)
-  {
-    stat.add(size);
-    rx.receive(buffer, size);
-    received ++;
-
-    if(received % display_every == 0)
-    {
-      if(t_now - t_last >= display_delay_microseconds)
-      {
-        cout << "Received: " << stat << endl;
-        t_last = t_now;
-      }
-      if(detailed_every > 0 && t_now - t_last_detailed >= detailed_every * 1e6)
-      {
-        cout << rx << endl;
-        t_last_detailed = t_now;
-      }
-    }
-  }
-
-  void finish()
-  {
-    cout << "Finally: " << stat << endl;
-    cout << rx << endl;
-  }
-};
-#endif
-
 using as::ip::udp;
 
 class receiver
