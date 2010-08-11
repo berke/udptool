@@ -1,6 +1,7 @@
 // udptool
 //
 // Author: Berke Durak <berke.durak@gmail.com>
+// vim:set ts=2 sw=2 foldmarker={,}:
 
 #include <cmath>
 #include <cfloat>
@@ -495,28 +496,28 @@ using as::ip::udp;
 
 class receiver
 {
-   as::io_service& io;
-   udp::endpoint src;
-   udp::socket socket;
-   boost::system::error_code ec;
-   link_statistic stat;
-   vector<char> buf;
-   packet_receiver rx;
+  as::io_service& io;
+  udp::endpoint src;
+  udp::socket socket;
+  boost::system::error_code ec;
+  link_statistic stat;
+  vector<char> buf;
+  packet_receiver rx;
 
 public:
-   receiver(as::io_service& io_) :
-     io(io_),
-     src(as::ip::address::from_string(opt.s_ip), opt.port),
-     socket(io, src),
-     stat(opt.avg_window, opt.max_window),
-     buf(opt.rx_buf_size),
-     rx(opt.log_file, opt.miss_window)
-   {
-   }
+  receiver(as::io_service& io_) :
+    io(io_),
+    src(as::ip::address::from_string(opt.s_ip), opt.port),
+    socket(io, src),
+    stat(opt.avg_window, opt.max_window),
+    buf(opt.rx_buf_size),
+    rx(opt.log_file, opt.miss_window)
+  {
+  }
 
-   void set_no_check()
-   {
-#if HAVE_SO_NO_CHECK
+  void set_no_check()
+  {
+    #if HAVE_SO_NO_CHECK
       as::socket_base_extra::no_check ckopt(false);
       socket.set_option(ckopt, ec);
       if(ec)
@@ -525,54 +526,202 @@ public:
         u += ec.message();
         throw runtime_error(u);
       }
-#endif
-   }
+    #endif
+  }
 
-   void run()
-   {
-      cout << "Listening on " << opt.port << endl;
+  void run()
+  {
+    cout << "Listening on " << opt.port << endl;
 
-      set_no_check();
+    set_no_check();
 
-      nat received = 0;
-      microsecond_timer::microseconds t_last = microsecond_timer::get(), t_last_detailed = t_last;
+    nat received = 0;
+    microsecond_timer::microseconds t_last = microsecond_timer::get(), t_last_detailed = t_last;
 
-      while(opt.count == 0 || received < opt.count)
+    while(opt.count == 0 || received < opt.count)
+    {
+      udp::endpoint remote;
+      size_t size = socket.receive_from(boost::asio::buffer(buf), remote, 0, ec);
+      if(ec)
       {
-        udp::endpoint remote;
-        size_t size = socket.receive_from(boost::asio::buffer(buf), remote, 0, ec);
-        if(ec)
-        {
-          cout << "Reception error: " << ec.message() << endl;
-        }
-        else
-        {
-          stat.add(size);
-          rx.receive(buf.data(), size);
-          received ++;
-        }
+        cout << "Reception error: " << ec.message() << endl;
+      }
+      else
+      {
+        stat.add(size);
+        rx.receive(buf.data(), size);
+        received ++;
+      }
 
-        if(received % display_every == 0)
+      if(received % display_every == 0)
+      {
+        microsecond_timer::microseconds t_now = microsecond_timer::get();
+        if(t_now - t_last >= display_delay_microseconds)
         {
-          microsecond_timer::microseconds t_now = microsecond_timer::get();
-          if(t_now - t_last >= display_delay_microseconds)
-          {
-            cout << "Received: " << stat << endl;
-            t_last = t_now;
-          }
-          if(opt.detailed_every > 0 && t_now - t_last_detailed >= opt.detailed_every * 1e6)
-          {
-            cout << rx << endl;
-            t_last_detailed = t_now;
-          }
+          cout << "Received: " << stat << endl;
+          t_last = t_now;
+        }
+        if(opt.detailed_every > 0 && t_now - t_last_detailed >= opt.detailed_every * 1e6)
+        {
+          cout << rx << endl;
+          t_last_detailed = t_now;
         }
       }
-      cout << "Finally: " << stat << endl;
-      cout << rx << endl;
-   }
+    }
+    cout << "Finally: " << stat << endl;
+    cout << rx << endl;
+  }
 };
 
-int main(int argc, char* argv[]) //{{{
+class transmitter
+{
+  as::io_service& io;
+
+public:
+  transmitter(as::io_service& io_) :
+    io(io_)
+  {
+  }
+
+  void run()
+  {
+    if(opt.d_ip.empty()) throw runtime_error("No destination IP");
+
+    // Resolve destination address
+    cout << "Resolving " << opt.d_ip << " port " << opt.port << endl;
+    udp::resolver resolver(io);
+    udp::resolver::query query(udp::v4(), opt.d_ip, to_string(opt.port));
+    udp::endpoint receiver_endpoint = *resolver.resolve(query);
+
+    cout << "Opening socket" << endl;
+    udp::endpoint src(as::ip::address::from_string(opt.s_ip), opt.tx_src_port);
+    udp::socket socket(io, src);
+
+    #if HAVE_SO_NO_CHECK
+      if(opt.no_check)
+      {
+        cout << "Disabling UDP checksumming" << endl;
+        as::socket_base_extra::no_check opt(false);
+        boost::system::error_code ec;
+        socket.set_option(opt, ec);
+        if(ec)
+        {
+          string u = "Cannot set NO_CHECK option: ";
+          u += ec.message();
+          throw runtime_error(u);
+        }
+      }
+    #endif
+
+    packet_transmitter tx(opt.log_file);
+
+    nat sent = 0;
+    microsecond_timer::microseconds t_last = microsecond_timer::get();
+    size_t bytes = 0;
+
+    link_statistic stat(opt.avg_window, opt.max_window);
+
+    cout << "Starting flood" << endl;
+    boost::asio::deadline_timer t(io);
+
+    vector<distribution::ptr>& sizes = opt.sizes, delays = opt.delays;
+    double bandwidth = opt.bandwidth;
+
+    vector<distribution::ptr>::iterator
+      d_it = delays.begin(),
+      s_it = sizes.begin();
+
+    bool have_delays = d_it != delays.end(),
+         have_sizes  = s_it != sizes.end();
+    
+    if(!have_delays && !have_sizes && bandwidth == 0)
+      throw runtime_error("No delay, size nor bandwidth specified");
+
+    if((!have_delays || !have_sizes) && bandwidth == 0)
+      throw runtime_error("No bandwidth speicifed");
+
+    if(bandwidth > 0 && have_delays && have_sizes)
+      throw runtime_error("You cannot specify all three of bandwidth, delays and sizes.");
+
+    microsecond_timer::microseconds t0 = microsecond_timer::get();
+
+    while(opt.count == 0 || sent < opt.count)
+    {
+      if(sent > 0 && sent % display_every == 0)
+      {
+        microsecond_timer::microseconds t_now = microsecond_timer::get();
+        if(t_now - t_last >= display_delay_microseconds)
+        {
+          cout << "Sent: " << stat << endl;
+          t_last = t_now;
+        }
+      }
+      sent ++;
+
+      double delay, delay_avg;
+      size_t size, size_avg;
+
+      if(have_delays)
+      {
+        delay = (*d_it)->next();
+        delay_avg = (*d_it)->mean();
+        d_it ++;
+        if(d_it == delays.end()) d_it = delays.begin();
+      }
+      else
+      {
+        delay_avg = delay = default_delay;
+      }
+
+      if(have_sizes)
+      {
+        size = (*s_it)->next();
+        size_avg = (*s_it)->mean();
+        s_it ++;
+        if(s_it == sizes.end()) s_it = sizes.begin();
+      }
+      else
+      {
+        size_avg = size = default_size;
+      }
+
+      if(!have_delays)
+      {
+        delay = 1e3 * double(size_avg) / (1e6/8.0 * bandwidth);
+      }
+      else
+      {
+        if(!have_sizes)
+        {
+          size = double(delay_avg) * 1e-3 * (1e6/8.0 * bandwidth);
+        }
+      }
+
+      if(size <= 0) continue;
+
+      std::vector<char> buf(size);
+      tx.transmit(buf.data(), size);
+
+      if(delay > 0)
+        t.expires_at(
+          microsecond_timer::as_posix(t0 + sent * delay * 1e3)
+        );
+
+      if(opt.p_loss == 0 || drand48() >= opt.p_loss)
+        socket.send_to(boost::asio::buffer(buf), receiver_endpoint);
+
+      if(opt.verbose) cerr << size << " " << delay << endl;
+
+      bytes += size;
+      stat.add(size);
+
+      if(delay > 0) t.wait();
+    }
+    cout << "Total: " << stat << endl;
+  }
+};
+
+int main(int argc, char* argv[])
 {
   // typedef const char *option;
   
@@ -633,156 +782,13 @@ int main(int argc, char* argv[]) //{{{
 
     if(opt.transmit)
     {
-      if(opt.d_ip.empty())
-      {
-        cerr << progname << ": Error, no destination IP" << endl;
-        return 1;
-      }
+      po::variable_value size_v = vm["size"],
+                         delay_v = vm["delay"];
+      if(!size_v.empty()) opt.sizes = size_v.as< vector<distribution::ptr> >();
+      if(!delay_v.empty()) opt.delays = delay_v.as< vector<distribution::ptr> >();
 
-      // Resolve destination address
-      cout << "Resolving " << opt.d_ip << " port " << opt.port << endl;
-      udp::resolver resolver(io);
-      udp::resolver::query query(udp::v4(), opt.d_ip, to_string(opt.port));
-      udp::endpoint receiver_endpoint = *resolver.resolve(query);
-
-      cout << "Opening socket" << endl;
-      udp::endpoint src(as::ip::address::from_string(opt.s_ip), opt.tx_src_port);
-      udp::socket socket(io, src);
-#if HAVE_SO_NO_CHECK
-      if(opt.no_check)
-      {
-        cout << "Disabling UDP checksumming" << endl;
-        as::socket_base_extra::no_check opt(false);
-        boost::system::error_code ec;
-        socket.set_option(opt, ec);
-        if(ec)
-        {
-          string u = "Cannot set NO_CHECK option: ";
-          u += ec.message();
-          throw runtime_error(u);
-        }
-      }
-#endif
-
-      packet_transmitter tx(opt.log_file);
-
-      nat sent = 0;
-      microsecond_timer::microseconds t_last = microsecond_timer::get();
-      size_t bytes = 0;
-
-      link_statistic stat(opt.avg_window, opt.max_window);
-
-      cout << "Starting flood" << endl;
-      boost::asio::deadline_timer t(io);
-
-      {
-        po::variable_value size_v = vm["size"],
-                           delay_v = vm["delay"];
-        if(!size_v.empty()) opt.sizes = size_v.as< vector<distribution::ptr> >();
-        if(!delay_v.empty()) opt.delays = delay_v.as< vector<distribution::ptr> >();
-      }
-
-      vector<distribution::ptr>& sizes = opt.sizes, delays = opt.delays;
-      double bandwidth = opt.bandwidth;
-
-      vector<distribution::ptr>::iterator
-        d_it = delays.begin(),
-        s_it = sizes.begin();
-
-      bool have_delays = d_it != delays.end(),
-           have_sizes  = s_it != sizes.end();
-      
-      if(!have_delays && !have_sizes && bandwidth == 0)
-      {
-        cerr << progname << ": Error, no delay, size nor bandwidth specified" << endl;
-        return 1;
-      }
-      if((!have_delays || !have_sizes) && bandwidth == 0)
-      {
-        cerr << progname << ": Error, no bandwidth speicifed" << endl;
-        return 1;
-      }
-      if(bandwidth > 0 && have_delays && have_sizes)
-      {
-        cerr << progname << ": Error, cannot specify all three of bandwidth, delays and sizes." << endl;
-        return 1;
-      }
-
-      microsecond_timer::microseconds t0 = microsecond_timer::get();
-
-      while(opt.count == 0 || sent < opt.count)
-      {
-        if(sent > 0 && sent % display_every == 0)
-        {
-          microsecond_timer::microseconds t_now = microsecond_timer::get();
-          if(t_now - t_last >= display_delay_microseconds)
-          {
-            cout << "Sent: " << stat << endl;
-            t_last = t_now;
-          }
-        }
-        sent ++;
-
-        double delay, delay_avg;
-        size_t size, size_avg;
-
-        if(have_delays)
-        {
-          delay = (*d_it)->next();
-          delay_avg = (*d_it)->mean();
-          d_it ++;
-          if(d_it == delays.end()) d_it = delays.begin();
-        }
-        else
-        {
-          delay_avg = delay = default_delay;
-        }
-
-        if(have_sizes)
-        {
-          size = (*s_it)->next();
-          size_avg = (*s_it)->mean();
-          s_it ++;
-          if(s_it == sizes.end()) s_it = sizes.begin();
-        }
-        else
-        {
-          size_avg = size = default_size;
-        }
-
-        if(!have_delays)
-        {
-          delay = 1e3 * double(size_avg) / (1e6/8.0 * bandwidth);
-        }
-        else
-        {
-          if(!have_sizes)
-          {
-            size = double(delay_avg) * 1e-3 * (1e6/8.0 * bandwidth);
-          }
-        }
-
-        if(size <= 0) continue;
-
-        std::vector<char> buf(size);
-        tx.transmit(buf.data(), size);
-
-        if(delay > 0)
-          t.expires_at(
-            microsecond_timer::as_posix(t0 + sent * delay * 1e3)
-          );
-
-        if(opt.p_loss == 0 || drand48() >= opt.p_loss)
-          socket.send_to(boost::asio::buffer(buf), receiver_endpoint);
-
-        if(opt.verbose) cerr << size << " " << delay << endl;
-
-        bytes += size;
-        stat.add(size);
-
-        if(delay > 0) t.wait();
-      }
-      cout << "Total: " << stat << endl;
+      transmitter tx(io);
+      tx.run();
     }
     else
     {
@@ -808,4 +814,4 @@ int main(int argc, char* argv[]) //{{{
   }
 
   return 0;
-} //}}}
+}
