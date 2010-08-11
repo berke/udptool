@@ -1,15 +1,58 @@
+#include <inttypes.h>
+#include <stddef.h>
+#include <arpa/inet.h>
+
+#define CURX_MISS_CHECKER_LG2_WINDOW 5
+#define CURX_MISS_CHECKER_WINDOW (1 << CURX_MISS_CHECKER_LG2_WINDOW)
+#define CURX_MISS_CHECKER_WINDOW_MASK (CURX_MISS_CHECKER_WINDOW - 1)
+
+struct curx_miss_checker_result
+{
+   int is_duplicate;
+   int some_missing;
+   uint32_t first_missing, last_missing;
+};
+
+struct curx_miss_checker
+{
+   uint64_t duplicates, missing, original;
+   uint32_t seen[CURX_MISS_CHECKER_WINDOW];
+   unsigned int seen_start, seen_size;
+   struct curx_miss_checker_result result;
+};
+
+enum curx_status
+{
+   CURX_OK    = 0,
+   CURX_SHORT = 1,
+   CURX_BAD   = 2,
+   CURX_OOO   = 4,
+   CURX_DUP   = 8,
+   CURX_TRUNC = 16
+};
+
 struct curx_wprng
 {
   uint32_t a, b, c, d;
-}
+};
+
+struct curx_state
+{
+   struct curx_wprng rng;
+   uint64_t seq_min, seq_max, seq_last, out_of_order, count, decodable_count,
+            byte_count, bad_checksum, truncated, total_errors, total_erroneous;
+   struct curx_miss_checker mc;
+};
+
+void (*curx_output_missing_hook)(uint32_t, uint32_t, uint32_t) = NULL;
 
 static inline uint32_t curx_wprng_rol32(uint32_t x, uint32_t y)
 {
- y &= 31;
- return (x << y) | (x >> (32 - y));
+   y &= 31;
+   return (x << y) | (x >> (32 - y));
 }
 
-void curx_wprng_init(struct curx_wprng *g, uint32_t seed=0)
+void curx_wprng_init(struct curx_wprng *g, uint32_t seed)
 {
    g->a = 0xdeadbeef ^ seed;
    g->b = 0x0badcafe + seed;
@@ -19,13 +62,13 @@ void curx_wprng_init(struct curx_wprng *g, uint32_t seed=0)
 
 void curx_wprng_step(struct curx_wprng *g)
 {
-   g->a = rol32(g->a, g->d);
+   g->a = curx_wprng_rol32(g->a, g->d);
    g->b ^= 0x89abcdef;
-   g->c = rol32(g->c, g->b);
-   g->d = rol32(g->d, g->a);
+   g->c = curx_wprng_rol32(g->c, g->b);
+   g->d = curx_wprng_rol32(g->d, g->a);
    g->c ^= 0x31415926;
    g->a ^= 0x01234567;
-   g->b = rol32(g->b, g->c);
+   g->b = curx_wprng_rol32(g->b, g->c);
    g->a += g->c;
    g->b ^= g->d;
    g->c -= g->a;
@@ -35,15 +78,8 @@ void curx_wprng_step(struct curx_wprng *g)
 
 uint32_t curx_wprng_get(struct curx_wprng *g)
 {
-   step(g);
+   curx_wprng_step(g);
    return g->a;
-};
-
-struct curx_state
-{
-   struct curx_wprng_state rng;
-   uint64_t seq_min, seq_max, seq_last, out_of_order, count, decodable_count,
-            byte_count, bad_checksum, truncated, total_errors, total_erroneous;
 };
 
 void curx_init(struct curx_state *q)
@@ -71,13 +107,13 @@ struct curx_ph
 
 void curx_ph_fix_endianness(struct curx_ph *h)
 {
-   h->sequence = ntohl(h->sequence);
-   h->timestap = ntohl(h->timestamp);
-   h->size     = ntohs(h->size);
-   h->check    = ntohs(h->check);
+   h->sequence  = ntohl(h->sequence);
+   h->timestamp = ntohl(h->timestamp);
+   h->size      = ntohs(h->size);
+   h->check     = ntohs(h->check);
 }
 
-uint16_t curx_ph_compute_checksum(struct curx_ph *h)
+uint16_t curx_ph_get_checksum(struct curx_ph *h)
 {
    return ~(h->sequence ^ h->size ^ h->timestamp);
 }
@@ -87,29 +123,8 @@ int curx_ph_checksum_valid(struct curx_ph *h)
    return curx_ph_get_checksum(h) == h->check;
 }
 
-#define CURX_MISS_CHECKER_LG2_WINDOW 5
-#define CURX_MISS_CHECKER_WINDOW (1 << CURX_MISS_CHECKER_WINDOW)
-#define CURX_MISS_CHECKER_WINDOW_MASK (CURX_MISS_CHECKER_WINDOW - 1)
-
-struct curx_miss_checker_result
-{
-   int is_duplicate;
-   int some_missing;
-   uint32_t first_missing, last_missing;
-};
-
-struct curx_miss_checker
-{
-   const unsigned int m;
-   uint64_t duplicates, missing, original;
-   uint32_t seen[CURX_MISS_CHECKER_WINDOW];
-   unsigned int seen_start, seen_size;
-   struct curx_miss_checker_result result;
-};
-
 void curx_miss_checker_init(struct curx_miss_checker *c)
 {
-   c->m          = 0;
    c->duplicates = 0;
    c->missing    = 0;
    c->original   = 0;
@@ -119,8 +134,8 @@ void curx_miss_checker_init(struct curx_miss_checker *c)
 
 void curx_miss_checker_insert(struct curx_miss_checker *c, unsigned int seq)
 {
-   c->seen[(c->seen_start + c->seen_count) & CURX_MISS_CHECKER_WINDOW_MASK] = seq;
-   c->seen_count ++;
+   c->seen[(c->seen_start + c->seen_size) & CURX_MISS_CHECKER_WINDOW_MASK] = seq;
+   c->seen_size ++;
 }
 
 void curx_miss_checker_remove_oldest(struct curx_miss_checker *c, struct curx_miss_checker_result *r)
@@ -133,7 +148,7 @@ void curx_miss_checker_remove_oldest(struct curx_miss_checker *c, struct curx_mi
       if(num_missing > 0)
       {
         c->missing += num_missing;
-        r->some_missing = true;
+        r->some_missing = 1;
         r->first_missing = s0 + 1;
         r->last_missing = s1 - 1;
       }
@@ -153,15 +168,15 @@ void curx_miss_checker_add(struct curx_miss_checker *c, uint32_t seq)
    r->is_duplicate = 0;
    r->some_missing = 0;
 
-   for(i = 0; i < c->seen_count; i ++)
+   for(i = 0; i < c->seen_size; i ++)
    {
       if(c->seen[(c->seen_start + i) & CURX_MISS_CHECKER_WINDOW_MASK] == seq) break;
    }
 
-   if(i == c->seen_count)
+   if(i == c->seen_size)
    {
       c->original ++;
-      if(r->seen_size == CURX_MISS_CHECKER_WINDOW) curx_miss_checker_remove_oldest(c, r);
+      if(c->seen_size == CURX_MISS_CHECKER_WINDOW) curx_miss_checker_remove_oldest(c, r);
       curx_miss_checker_insert(c, seq);
    }
    else
@@ -175,91 +190,83 @@ void curx_miss_checker_add(struct curx_miss_checker *c, uint32_t seq)
  * length - Size of UDP payload
  */
 
-enum curx_status
+enum curx_status curx_receive(struct curx_state *q, const char *buffer, const size_t m0)
 {
-   CURX_OK    = 0,
-   CURX_SHORT = 1,
-   CURX_BAD   = 2,
-   CURX_OOO   = 4,
-   CURX_DUP   = 8,
-   CURX_TRUNC = 16
-};
-
-curx_status curx_receive(const char *buffer, const size_t m0)
-{
-   curx_status status = CURX_OK;
+   enum curx_status status = CURX_OK;
    uint32_t seq = 0;
    uint32_t errors = 0;
    unsigned int i;
    size_t m = m0;
    struct curx_ph *ph;
-   struct curx_wprng *w = &q->wprng;
+   struct curx_wprng *w = &q->rng;
    char *p;
-    
+
    do
    {
-     if(m0 < sizeof(packet_header))
-     {
-       status = CURX_SHORT;
-       break;
-     }
+      if(m0 < sizeof(struct curx_ph))
+      {
+         status = CURX_SHORT;
+         break;
+      }
 
-     try
-     {
-        ph = (struct curx_ph *) buffer;
+      ph = (struct curx_ph *) buffer;
+      curx_ph_fix_endianness(ph);
+      if(!curx_ph_checksum_valid(ph))
+      {
+         status = CURX_BAD;
+         q->bad_checksum ++;
+         break;
+      }
 
-        if(!curx_ph_checksum_valid(ph))
-        {
-           status = CURX_BAD;
-           bad_checksum ++;
-           break;
-        }
+      seq = ph->sequence;
+      if(!q->count || seq < q->seq_min) q->seq_min = seq;
+      if(!q->count || seq > q->seq_max) q->seq_max = seq;
+      if(q->count && seq < q->seq_last)
+      {
+         status |= CURX_OOO;
+         q->out_of_order ++;
+      }
+      q->seq_last = seq;
 
-        seq = ph->sequence;
-        if(!q->count || seq < q->seq_min) q->seq_min = seq;
-        if(!q->count || seq > q->seq_max) q->seq_max = seq;
-        if(q->count && seq < q->seq_last)
-        {
-           status |= CURX_OOO;
-           out_of_order ++;
-        }
-        q->seq_last = seq;
+      curx_miss_checker_add(&q->mc, seq);
+      if(q->mc.result.is_duplicate) status |= CURX_DUP;
+      if(q->mc.result.some_missing)
+      {
+         if(curx_output_missing_hook != NULL)
+            curx_output_missing_hook(
+                                q->mc.result.last_missing - q->mc.result.first_missing + 1,
+                                q->mc.result.first_missing,
+                                q->mc.result.last_missing
+                              );
+      }
 
-        miss_checker::result r = mc.add(seq);
-        if(r.is_duplicate) curx_status |= CURX_DUP;
-        if(r.some_missing)
-        {
-           log << "# missing " << (r.last_missing - r.first_missing + 1) << " " << r.first_missing << " " << r.last_missing << "\n";
-        }
+      curx_wprng_init(w, ph->check);
 
-        curx_wprng_init(w);
+      if(ph->size != m)
+      {
+         q->truncated ++;
+         status |= CURX_TRUNC;
+         break;
+      }
 
-        if(ph->size != m)
-        {
-           truncated ++;
-           status |= CURX_TRUNC;
-           break;
-        }
+      q->decodable_count ++;
 
-        q->decodable_count ++;
+      p = (char *) (ph + 1);
 
-        p = (char *) (ph + 1);
+      for(i = 0; i < m; i ++)
+      {
+         uint8_t expected_byte, received_byte;
 
-        for(i = 0; i < m; i ++)
-        {
-           uint8_t expected_byte, received_byte;
+         expected_byte = curx_wprng_get(w);
+         received_byte = *(p ++);
 
-           expected_byte = curx_wprng_get(w);
-           received_byte = *(p ++);
-
-           if(expected_byte != received_byte) errors ++;
-        }
-        if(errors > 0)
-        {
-           q->total_erroneous ++;
-           q->total_errors += errors;
-        }
-     }
+         if(expected_byte != received_byte) errors ++;
+      }
+      if(errors > 0)
+      {
+         q->total_erroneous ++;
+         q->total_errors += errors;
+      }
    }
    while(0);
 
