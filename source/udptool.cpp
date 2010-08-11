@@ -170,7 +170,7 @@ struct our_options
   bool verbose;
   string log_file;
   double bandwidth;
-  double detailed_every;
+  double summary_every, detailed_every;
   nat avg_window, max_window, miss_window;
   bool transmit, receive;
   size_t rx_buf_size;
@@ -188,7 +188,8 @@ struct our_options
     verbose(false),
     log_file(""),
     bandwidth(0),
-    detailed_every(5.0),\
+    summary_every(1.0),
+    detailed_every(5.0),
     avg_window(10000), max_window(10000), miss_window(50),
     transmit(false), receive(false),
     rx_buf_size(10000),
@@ -461,6 +462,8 @@ const char *progname = "";
 
 using as::ip::udp;
 
+boost::system::error_code no_error;
+
 class receiver
 {
   as::io_service& io;
@@ -471,8 +474,11 @@ class receiver
   vector<char> buf;
   packet_receiver rx;
   nat received;
-  microsecond_timer::microseconds t_last, t_last_detailed;
   udp::endpoint remote;
+  as::deadline_timer
+    summary_timer,
+    detailed_display_timer;
+  bool summary_first, detailed_display_first;
 
 public:
   receiver(as::io_service& io_) :
@@ -483,12 +489,16 @@ public:
     buf(opt.rx_buf_size),
     rx(opt.log_file, opt.miss_window),
     received(0),
-    t_last(microsecond_timer::get()),
-    t_last_detailed(t_last)
+    summary_timer(io),
+    detailed_display_timer(io)
   {
     cout << "Listening on " << opt.port << endl;
     set_no_check();
     setup_receive();
+    summary_first = true;
+    detailed_display_first = true;
+    rearm_summary();
+    //rearm_detailed(boost::system::error_code());
   }
 
   ~receiver()
@@ -509,6 +519,34 @@ public:
         throw runtime_error(u);
       }
     #endif
+  }
+
+  void display_summary()
+  {
+    cout << "Received: " << stat << endl;
+  }
+
+  void display_detailed()
+  {
+    cout << rx << endl;
+  }
+
+  void rearm_summary(boost::system::error_code& error=no_error)
+  {
+    if(error != as::error::operation_aborted)
+    {
+      if(summary_first) summary_first = false;
+      else display_summary();
+
+      summary_timer.expires_from_now(boost::posix_time::microseconds(opt.summary_every * 1e6));
+      summary_timer.async_wait(
+        boost::bind(
+          &receiver::rearm_summary,
+          this,
+          as::placeholders::error
+        )
+      );
+    }
   }
 
   void setup_receive()
@@ -538,22 +576,6 @@ public:
       rx.receive(buf.data(), size);
       received ++;
     }
-
-    if(received % display_every == 0)
-    {
-      microsecond_timer::microseconds t_now = microsecond_timer::get();
-      if(t_now - t_last >= display_delay_microseconds)
-      {
-        cout << "Received: " << stat << endl;
-        t_last = t_now;
-      }
-      if(opt.detailed_every > 0 && t_now - t_last_detailed >= opt.detailed_every * 1e6)
-      {
-        cout << rx << endl;
-        t_last_detailed = t_now;
-      }
-    }
-
     setup_receive();
   }
 };
@@ -733,6 +755,7 @@ int main(int argc, char* argv[])
     ("bandwidth",       po::value<double>(&opt.bandwidth),        "Adjust delay or packet size to bandwidth (Mbit/s)") 
     ("count",           po::value<nat>(&opt.count),               "Number of packets to send, or 0 for no limit)")
     ("verbose",         po::bool_switch(&opt.verbose),            "Display each packet as it is sent")
+    ("summary-every",   po::value<double>(&opt.summary_every),    "Display summary statistics every so many seconds")
     ("detailed-every",  po::value<double>(&opt.detailed_every),   "Display detailed statistics every so many seconds")
     ("log-file",        po::value<string>(&opt.log_file),         "Log file")
     ("p-loss",          po::value<double>(&opt.p_loss),           "Simulated packet loss probability")
