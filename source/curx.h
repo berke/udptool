@@ -37,7 +37,8 @@ enum curx_status
    CURX_BAD   = 2,
    CURX_OOO   = 4,
    CURX_DUP   = 8,
-   CURX_TRUNC = 16
+   CURX_TRUNC = 16,
+   CURX_BER   = 32
 };
 
 struct curx_wprng

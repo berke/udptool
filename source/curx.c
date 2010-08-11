@@ -38,6 +38,11 @@ static uint32_t curx_wprng_get(struct curx_wprng *g)
    return g->a;
 };
 
+static void curx_ph_show(struct curx_ph *h)
+{
+   curx_printf("PH %u %u %u %u", h->sequence, h->timestamp, h->size, h->check);
+}
+
 static void curx_ph_fix_endianness(struct curx_ph *h)
 {
    h->sequence  = ntohl(h->sequence);
@@ -160,6 +165,7 @@ enum curx_status curx_receive(struct curx_state *q, const char *buffer, const si
 
       ph = (struct curx_ph *) buffer;
       curx_ph_fix_endianness(ph);
+      curx_ph_show(ph);
       if(!curx_ph_checksum_valid(ph))
       {
          status = CURX_BAD;
@@ -213,6 +219,7 @@ enum curx_status curx_receive(struct curx_state *q, const char *buffer, const si
       }
       if(errors > 0)
       {
+         status |= CURX_BER;
          q->total_erroneous ++;
          q->total_errors += errors;
       }
