@@ -597,9 +597,12 @@ int main(int argc, char* argv[]) //{{{
       {
         po::variable_value size_v = vm["size"],
                            delay_v = vm["delay"];
-        if(!size_v.empty()) sizes = size_v.as< vector<distribution::ptr> >();
-        if(!delay_v.empty()) delays = delay_v.as< vector<distribution::ptr> >();
+        if(!size_v.empty()) opt.sizes = size_v.as< vector<distribution::ptr> >();
+        if(!delay_v.empty()) opt.delays = delay_v.as< vector<distribution::ptr> >();
       }
+
+      vector<distribution::ptr>& sizes = opt.sizes, delays = opt.delays;
+      double bandwidth = opt.bandwidth;
 
       vector<distribution::ptr>::iterator
         d_it = delays.begin(),
@@ -626,7 +629,7 @@ int main(int argc, char* argv[]) //{{{
 
       microsecond_timer::microseconds t0 = microsecond_timer::get();
 
-      while(count == 0 || sent < count)
+      while(opt.count == 0 || sent < opt.count)
       {
         if(sent > 0 && sent % display_every == 0)
         {
@@ -688,10 +691,10 @@ int main(int argc, char* argv[]) //{{{
             microsecond_timer::as_posix(t0 + sent * delay * 1e3)
           );
 
-        if(p_loss == 0 || drand48() >= p_loss)
+        if(opt.p_loss == 0 || drand48() >= opt.p_loss)
           socket.send_to(boost::asio::buffer(buf), receiver_endpoint);
 
-        if(verbose) cerr << size << " " << delay << endl;
+        if(opt.verbose) cerr << size << " " << delay << endl;
 
         bytes += size;
         stat.add(size);
@@ -704,13 +707,13 @@ int main(int argc, char* argv[]) //{{{
     {
       boost::system::error_code ec;
 
-      udp::endpoint src(as::ip::address::from_string(s_ip), port);
+      udp::endpoint src(as::ip::address::from_string(opt.s_ip), opt.port);
       udp::socket socket(io, src);
-      cout << "Listening on " << port << endl;
+      cout << "Listening on " << opt.port << endl;
 
 #if HAVE_SO_NO_CHECK
-      as::socket_base_extra::no_check opt(false);
-      socket.set_option(opt, ec);
+      as::socket_base_extra::no_check ckopt(false);
+      socket.set_option(ckopt, ec);
       if(ec)
       {
         string u = "Cannot set NO_CHECK option: ";
@@ -719,14 +722,14 @@ int main(int argc, char* argv[]) //{{{
       }
 #endif
 
-      link_statistic stat(avg_window, max_window);
+      link_statistic stat(opt.avg_window, opt.max_window);
 
       nat received = 0;
-      vector<char> buf(rx_buf_size);
-      packet_receiver rx(log_file, miss_window);
+      vector<char> buf(opt.rx_buf_size);
+      packet_receiver rx(opt.log_file, opt.miss_window);
       microsecond_timer::microseconds t_last = microsecond_timer::get(), t_last_detailed = t_last;
 
-      while(count == 0 || received < count)
+      while(opt.count == 0 || received < opt.count)
       {
         udp::endpoint remote;
         size_t size = socket.receive_from(boost::asio::buffer(buf), remote, 0, ec);
@@ -749,7 +752,7 @@ int main(int argc, char* argv[]) //{{{
             cout << "Received: " << stat << endl;
             t_last = t_now;
           }
-          if(detailed_every > 0 && t_now - t_last_detailed >= detailed_every * 1e6)
+          if(opt.detailed_every > 0 && t_now - t_last_detailed >= opt.detailed_every * 1e6)
           {
             cout << rx << endl;
             t_last_detailed = t_now;
