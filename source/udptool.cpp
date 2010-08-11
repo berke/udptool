@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <cassert>
+#include <csignal>
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -17,6 +18,7 @@
 #include <boost/shared_ptr.hpp>
 #include <boost/program_options.hpp>
 #include <boost/foreach.hpp>
+#include <boost/bind.hpp>
 #include <boost/asio.hpp>
 #include <boost/date_time/posix_time/posix_time.hpp>
 
@@ -34,6 +36,8 @@ using boost::any;
 using namespace std;
 
 typedef unsigned int nat;
+
+bool stop_flag = false;
 
 string to_string(nat& n)
 {
@@ -466,6 +470,9 @@ class receiver
   link_statistic stat;
   vector<char> buf;
   packet_receiver rx;
+  nat received;
+  microsecond_timer::microseconds t_last, t_last_detailed;
+  udp::endpoint remote;
 
 public:
   receiver(as::io_service& io_) :
@@ -474,8 +481,20 @@ public:
     socket(io, src),
     stat(opt.avg_window, opt.max_window),
     buf(opt.rx_buf_size),
-    rx(opt.log_file, opt.miss_window)
+    rx(opt.log_file, opt.miss_window),
+    received(0),
+    t_last(microsecond_timer::get()),
+    t_last_detailed(t_last)
   {
+    cout << "Listening on " << opt.port << endl;
+    set_no_check();
+    setup_receive();
+  }
+
+  ~receiver()
+  {
+    cout << "Finally: " << stat << endl;
+    cout << rx << endl;
   }
 
   void set_no_check()
@@ -492,47 +511,50 @@ public:
     #endif
   }
 
-  void run()
+  void setup_receive()
   {
-    cout << "Listening on " << opt.port << endl;
+    if(opt.count == 0 || received < opt.count)
+      socket.async_receive_from(
+        as::buffer(buf),
+        remote,
+        boost::bind(
+          &receiver::handle_receive_from,
+          this,
+          as::placeholders::error,
+          as::placeholders::bytes_transferred
+        )
+      );
+  }
 
-    set_no_check();
-
-    nat received = 0;
-    microsecond_timer::microseconds t_last = microsecond_timer::get(), t_last_detailed = t_last;
-
-    while(opt.count == 0 || received < opt.count)
+  void handle_receive_from(const boost::system::error_code& ec, size_t size)
+  {
+    if(ec)
     {
-      udp::endpoint remote;
-      size_t size = socket.receive_from(boost::asio::buffer(buf), remote, 0, ec);
-      if(ec)
-      {
-        cout << "Reception error: " << ec.message() << endl;
-      }
-      else
-      {
-        stat.add(size);
-        rx.receive(buf.data(), size);
-        received ++;
-      }
+      cout << "Reception error: " << ec.message() << endl;
+    }
+    else
+    {
+      stat.add(size);
+      rx.receive(buf.data(), size);
+      received ++;
+    }
 
-      if(received % display_every == 0)
+    if(received % display_every == 0)
+    {
+      microsecond_timer::microseconds t_now = microsecond_timer::get();
+      if(t_now - t_last >= display_delay_microseconds)
       {
-        microsecond_timer::microseconds t_now = microsecond_timer::get();
-        if(t_now - t_last >= display_delay_microseconds)
-        {
-          cout << "Received: " << stat << endl;
-          t_last = t_now;
-        }
-        if(opt.detailed_every > 0 && t_now - t_last_detailed >= opt.detailed_every * 1e6)
-        {
-          cout << rx << endl;
-          t_last_detailed = t_now;
-        }
+        cout << "Received: " << stat << endl;
+        t_last = t_now;
+      }
+      if(opt.detailed_every > 0 && t_now - t_last_detailed >= opt.detailed_every * 1e6)
+      {
+        cout << rx << endl;
+        t_last_detailed = t_now;
       }
     }
-    cout << "Finally: " << stat << endl;
-    cout << rx << endl;
+
+    setup_receive();
   }
 };
 
@@ -684,6 +706,14 @@ public:
   }
 };
 
+static as::io_service* service_to_stop = NULL;
+
+void sigint_handler(int i)
+{
+  cout << endl << "*** Break" << endl;
+  if(service_to_stop != NULL) service_to_stop->stop();
+}
+
 int main(int argc, char* argv[])
 {
   // typedef const char *option;
@@ -741,6 +771,11 @@ int main(int argc, char* argv[])
     using as::ip::udp;
     as::io_service io;
 
+    // Handle Ctrl-C
+    service_to_stop = &io;
+    std::signal(SIGINT, sigint_handler);
+
+    // Setup log file
     if(opt.log_file.empty()) opt.log_file = opt.transmit ? "tx.log" : "rx.log";
 
     if(opt.transmit)
@@ -756,7 +791,7 @@ int main(int argc, char* argv[])
     else
     {
       receiver rx(io);
-      rx.run();
+      io.run();
     }
   }
   catch(po::error& e)
