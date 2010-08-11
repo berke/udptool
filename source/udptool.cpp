@@ -38,6 +38,8 @@ using namespace std;
 typedef unsigned int nat;
 
 bool stop_flag = false;
+as::io_service* service_to_stop = NULL;
+sighandler_t old_sigint_handler = NULL;
 
 string to_string(nat& n)
 {
@@ -649,6 +651,9 @@ public:
     udp::endpoint src(as::ip::address::from_string(opt.s_ip), opt.tx_src_port);
     udp::socket socket(io, src);
 
+    udp::endpoint local = socket.local_endpoint();
+    cout << "Socket is bound to " << local << endl;
+
     #if HAVE_SO_NO_CHECK
       if(opt.no_check)
       {
@@ -666,7 +671,7 @@ public:
     #endif
 
     stringstream log_file;
-    log_file << opt.log_file_prefix << "udp-" << src << "-to-" << receiver_endpoint << opt.log_file_suffix;
+    log_file << opt.log_file_prefix << "udp-" << local << "-to-" << receiver_endpoint << opt.log_file_suffix;
     packet_transmitter tx(log_file.str());
 
     nat sent = 0;
@@ -687,7 +692,7 @@ public:
 
     bool have_delays = d_it != delays.end(),
          have_sizes  = s_it != sizes.end();
-    
+
     if(!have_delays && !have_sizes && bandwidth == 0)
       throw runtime_error("No delay, size nor bandwidth specified");
 
@@ -699,7 +704,7 @@ public:
 
     microsecond_timer::microseconds t0 = microsecond_timer::get();
 
-    while(opt.count == 0 || sent < opt.count)
+    while(!stop_flag && (opt.count == 0 || sent < opt.count))
     {
       if(sent > 0 && sent % display_every == 0)
       {
@@ -775,12 +780,12 @@ public:
   }
 };
 
-static as::io_service* service_to_stop = NULL;
-
 void sigint_handler(int i)
 {
   cout << endl << "*** Break" << endl;
   if(service_to_stop != NULL) service_to_stop->stop();
+  stop_flag = true;
+  if(old_sigint_handler != NULL) std::signal(SIGINT, old_sigint_handler);
 }
 
 int main(int argc, char* argv[])
@@ -791,14 +796,14 @@ int main(int argc, char* argv[])
 
   po::options_description desc("Available options");
   desc.add_options()
-    ("help,h",                                                            "Display this information")
+    ("help,h",                                                    "Display this information")
     ("tx",              po::bool_switch(&opt.transmit),           "Transmit packets")
     ("rx",              po::bool_switch(&opt.receive),            "Receive packets")
     ("sip",             po::value<string>(&opt.s_ip),             "Source IP to bind to")
     ("dip",             po::value<string>(&opt.d_ip),             "Destination IP to transmit to")
     ("port",            po::value<nat>(&opt.port),                "Target port (default 33333)")
-    ("size",            po::value< vector<distribution::ptr> >(),         "Add a packet size distribution")
-    ("delay",           po::value< vector<distribution::ptr> >(),         "Add a packet transmission delay distribution (ms)")
+    ("size",            po::value< vector<distribution::ptr> >(), "Add a packet size distribution")
+    ("delay",           po::value< vector<distribution::ptr> >(), "Add a packet transmission delay distribution (ms)")
     ("bandwidth",       po::value<double>(&opt.bandwidth),        "Adjust delay or packet size to bandwidth (Mbit/s)") 
     ("count",           po::value<nat>(&opt.count),               "Number of packets to send, or 0 for no limit)")
     ("verbose",         po::bool_switch(&opt.verbose),            "Display each packet as it is sent")
@@ -844,7 +849,7 @@ int main(int argc, char* argv[])
 
     // Handle Ctrl-C
     service_to_stop = &io;
-    std::signal(SIGINT, sigint_handler);
+    old_sigint_handler = std::signal(SIGINT, sigint_handler);
 
     // Setup log file
     if(opt.log_file_suffix.empty()) opt.log_file_suffix = opt.transmit ? ".txl" : ".rxl";
