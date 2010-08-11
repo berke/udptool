@@ -97,7 +97,7 @@ int main(int argc, char **argv)
          curx_init(&cx);
          memcpy(&sin_old, &sin, sizeof(sin_old));
          have_sin_old = true;
-         printf("Receiving from %lx:%d\n", ntohl(sin.sin_addr.s_addr), ntohs(sin.sin_port));
+         printf("Receiving from %x:%d\n", ntohl(sin.sin_addr.s_addr), ntohs(sin.sin_port));
       }
 
       /* printf("Received %d bytes on socket:\n", m);

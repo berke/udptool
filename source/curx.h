@@ -1,8 +1,7 @@
 #ifndef CURX_H
 #define CURX_H
 
-#include <inttypes.h>
-#include <stddef.h>
+#include "curx_config.h"
 
 struct curx_ph
 {

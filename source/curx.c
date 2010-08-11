@@ -1,4 +1,3 @@
-#include <arpa/inet.h>
 #include "curx.h"
 
 void (*curx_output_missing_hook)(uint32_t, uint32_t, uint32_t) = NULL;
