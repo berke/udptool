@@ -464,6 +464,51 @@ using as::ip::udp;
 
 boost::system::error_code no_error;
 
+class periodic
+{
+  boost::function<void()> method;
+  as::io_service& io;
+  as::deadline_timer timer;
+  boost::posix_time::microseconds interval;
+  bool first;
+
+public:
+  periodic(
+      as::io_service& io_,
+      double interval_,
+      boost::function<void()> method_
+    ) :
+    method(method_),
+    io(io_),
+    timer(io),
+    interval(1e6 * interval_),
+    first(true)
+  {
+    if(interval_ > 0)
+      rearm();
+  }
+
+  virtual ~periodic() { }
+
+  void rearm(boost::system::error_code& error=no_error)
+  {
+    if(error != as::error::operation_aborted)
+    {
+      if(first) first = false;
+      else method();
+
+      timer.expires_from_now(interval);
+      timer.async_wait(
+        boost::bind(
+          &periodic::rearm,
+          this,
+          as::placeholders::error
+        )
+      );
+    }
+  }
+};
+
 class receiver
 {
   as::io_service& io;
@@ -475,10 +520,7 @@ class receiver
   packet_receiver rx;
   nat received;
   udp::endpoint remote;
-  as::deadline_timer
-    summary_timer,
-    detailed_display_timer;
-  bool summary_first, detailed_display_first;
+  periodic summary, detailed;
 
 public:
   receiver(as::io_service& io_) :
@@ -489,16 +531,12 @@ public:
     buf(opt.rx_buf_size),
     rx(opt.log_file, opt.miss_window),
     received(0),
-    summary_timer(io),
-    detailed_display_timer(io)
+    summary(io, opt.summary_every, boost::bind(&receiver::display_summary, this)),
+    detailed(io, opt.detailed_every, boost::bind(&receiver::display_detailed, this))
   {
     cout << "Listening on " << opt.port << endl;
     set_no_check();
     setup_receive();
-    summary_first = true;
-    detailed_display_first = true;
-    rearm_summary();
-    //rearm_detailed(boost::system::error_code());
   }
 
   ~receiver()
@@ -529,24 +567,6 @@ public:
   void display_detailed()
   {
     cout << rx << endl;
-  }
-
-  void rearm_summary(boost::system::error_code& error=no_error)
-  {
-    if(error != as::error::operation_aborted)
-    {
-      if(summary_first) summary_first = false;
-      else display_summary();
-
-      summary_timer.expires_from_now(boost::posix_time::microseconds(opt.summary_every * 1e6));
-      summary_timer.async_wait(
-        boost::bind(
-          &receiver::rearm_summary,
-          this,
-          as::placeholders::error
-        )
-      );
-    }
   }
 
   void setup_receive()
