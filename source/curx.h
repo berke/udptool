@@ -11,7 +11,14 @@ struct curx_ph
    uint16_t check;
 };
 
-#define CURX_MISS_CHECKER_LG2_WINDOW 5
+#ifndef CURX_MISS_CHECKER_LG2_WINDOW
+  #define CURX_MISS_CHECKER_LG2_WINDOW 7
+#endif
+
+#if CURX_MISS_CHECKER_LG2_WINDOW < 1
+  #error "CURX_MISS_CHECKER_LG2_WINDOW must be at least 1"
+#endif
+
 #define CURX_MISS_CHECKER_WINDOW (1 << CURX_MISS_CHECKER_LG2_WINDOW)
 #define CURX_MISS_CHECKER_WINDOW_MASK (CURX_MISS_CHECKER_WINDOW - 1)
 
@@ -32,13 +39,15 @@ struct curx_miss_checker
 
 enum curx_status
 {
+   CURX_MIN   = 0,
    CURX_OK    = 0,
    CURX_SHORT = 1,
    CURX_BAD   = 2,
    CURX_OOO   = 4,
    CURX_DUP   = 8,
    CURX_TRUNC = 16,
-   CURX_BER   = 32
+   CURX_BER   = 32,
+   CURX_MAX   = 63
 };
 
 struct curx_wprng
@@ -63,5 +72,15 @@ void curx_init(struct curx_state *q);
  * length - Size of UDP payload
  */
 enum curx_status curx_receive(struct curx_state *q, const char *buffer, const size_t m0);
+
+#define CURX_STATUS_FORMAT "{%s%s%s%s%s%s }"
+#define CURX_STATUS_FORMAT_PADDED "{%6s%6s%6s%6s%6s%6s }"
+#define CURX_STATUS_ARGS(status) \
+            status & CURX_SHORT ? " short":"", \
+            status & CURX_BAD   ? " bad"  :"", \
+            status & CURX_OOO   ? " ooo"  :"", \
+            status & CURX_DUP   ? " dup"  :"", \
+            status & CURX_TRUNC ? " trunc":"", \
+            status & CURX_BER   ? " ber"  :""
 
 #endif
