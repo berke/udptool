@@ -83,7 +83,7 @@ static void curx_miss_checker_insert(struct curx_miss_checker *c, uint32_t seq)
  * to bother with heaps or RB trees to get O(1) operations. */
 static int curx_find_smallest_greater_than(struct curx_miss_checker *c, uint32_t seq, int minus_infinity)
 {
-  uint32_t smallest;
+  uint32_t smallest = 0;
   int i,
       j,
       j_smallest = -1;
@@ -113,7 +113,7 @@ static inline void swap_uint32_t(uint32_t *a, int i, int j)
 static void curx_miss_checker_remove_smallest(struct curx_miss_checker *c, struct curx_miss_checker_result *r)
 {
   int j_smallest      = curx_find_smallest_greater_than(c, 0, 1),
-      j_next_smallest = curx_find_smallest_greater_than(c, c->seen[j_next_smallest], 0);
+      j_next_smallest = curx_find_smallest_greater_than(c, c->seen[j_smallest], 0);
   uint32_t s0 = c->seen[j_smallest],
            s1 = c->seen[j_next_smallest];
   unsigned int num_missing = s1 - s0 - 1;
@@ -161,7 +161,7 @@ duplicate:
   }
 }
 
-void curx_init(struct curx_state *q, void (*output_missing_hook)(uint32_t, uint32_t, uint32_t))
+void curx_init(struct curx_state *q, void (*output_missing_hook)(void *, uint32_t, uint32_t, uint32_t), void *hook_data)
 {
   q->seq_min             = 0;
   q->seq_max             = 0;
@@ -175,6 +175,7 @@ void curx_init(struct curx_state *q, void (*output_missing_hook)(uint32_t, uint3
   q->total_errors        = 0;
   q->total_erroneous     = 0;
   q->output_missing_hook = output_missing_hook;
+  q->hook_data           = hook_data;
   curx_miss_checker_init(&q->mc);
 }
 
@@ -227,6 +228,7 @@ enum curx_status curx_receive(struct curx_state *q, const char *buffer, const si
     {
       if(q->output_missing_hook != NULL)
         q->output_missing_hook(
+            q->hook_data,
             q->mc.result.last_missing - q->mc.result.first_missing + 1,
             q->mc.result.first_missing,
             q->mc.result.last_missing

@@ -38,7 +38,7 @@ static void display_packet(const char *data, int m)
    if(m > 0) printf("\n");
 }
 
-void output_missing(uint32_t count, uint32_t first, uint32_t last)
+void output_missing(void *data, uint32_t count, uint32_t first, uint32_t last)
 {
    /* printf("Missing %u from %u to %u\n", count, first, last); */
 }
@@ -93,7 +93,7 @@ int main(int argc, char **argv)
       if(!have_sin_old || sin.sin_addr.s_addr != sin_old.sin_addr.s_addr || sin.sin_port != sin_old.sin_port)
       {
          if(have_sin_old) display();
-         curx_init(&cx, output_missing);
+         curx_init(&cx, output_missing, NULL);
          memcpy(&sin_old, &sin, sizeof(sin_old));
          have_sin_old = true;
          printf("Receiving from %x:%d\n", ntohl(sin.sin_addr.s_addr), ntohs(sin.sin_port));
