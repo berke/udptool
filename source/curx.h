@@ -1,3 +1,8 @@
+// curx.h
+//
+// Author: Berke Durak <berke.durak@gmail.com>
+// vim:set ts=2 sw=2 foldmarker={,}:
+
 #ifndef CURX_H
 #define CURX_H
 
@@ -61,11 +66,10 @@ struct curx_state
    uint64_t seq_min, seq_max, seq_last, out_of_order, count, decodable_count,
             byte_count, bad_checksum, truncated, total_errors, total_erroneous;
    struct curx_miss_checker mc;
+   void (*output_missing_hook)(uint32_t, uint32_t, uint32_t);
 };
 
-extern void (*curx_output_missing_hook)(uint32_t, uint32_t, uint32_t);
-
-void curx_init(struct curx_state *q);
+void curx_init(struct curx_state *q, void (*output_missing_hook)(uint32_t, uint32_t, uint32_t));
 
 /* q      - properly initialized state
  * data   - Pointer to UDP payload data

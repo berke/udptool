@@ -5,8 +5,6 @@
 
 #include "curx.h"
 
-void (*curx_output_missing_hook)(uint32_t, uint32_t, uint32_t) = NULL;
-
 static inline uint32_t curx_wprng_rol32(uint32_t x, uint32_t y)
 {
   y &= 31;
@@ -163,19 +161,20 @@ duplicate:
   }
 }
 
-void curx_init(struct curx_state *q)
+void curx_init(struct curx_state *q, void (*output_missing_hook)(uint32_t, uint32_t, uint32_t))
 {
-  q->seq_min         = 0;
-  q->seq_max         = 0;
-  q->seq_last        = 0;
-  q->out_of_order    = 0;
-  q->count           = 0;
-  q->decodable_count = 0;
-  q->byte_count      = 0;
-  q->bad_checksum    = 0;
-  q->truncated       = 0;
-  q->total_errors    = 0;
-  q->total_erroneous = 0;
+  q->seq_min             = 0;
+  q->seq_max             = 0;
+  q->seq_last            = 0;
+  q->out_of_order        = 0;
+  q->count               = 0;
+  q->decodable_count     = 0;
+  q->byte_count          = 0;
+  q->bad_checksum        = 0;
+  q->truncated           = 0;
+  q->total_errors        = 0;
+  q->total_erroneous     = 0;
+  q->output_missing_hook = output_missing_hook;
   curx_miss_checker_init(&q->mc);
 }
 
@@ -226,8 +225,8 @@ enum curx_status curx_receive(struct curx_state *q, const char *buffer, const si
     if(q->mc.result.is_duplicate) status |= CURX_DUP;
     if(q->mc.result.some_missing)
     {
-      if(curx_output_missing_hook != NULL)
-        curx_output_missing_hook(
+      if(q->output_missing_hook != NULL)
+        q->output_missing_hook(
             q->mc.result.last_missing - q->mc.result.first_missing + 1,
             q->mc.result.first_missing,
             q->mc.result.last_missing

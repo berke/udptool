@@ -81,7 +81,6 @@ int main(int argc, char **argv)
    sin.sin_addr.s_addr = INADDR_ANY;
    sin.sin_port = htons(port);
    avoid(bind(s, (struct sockaddr *) &sin, sizeof(sin)) < 0, "Can't bind to port %d", port);
-   curx_output_missing_hook = output_missing;
 
    while(true)
    {
@@ -94,7 +93,7 @@ int main(int argc, char **argv)
       if(!have_sin_old || sin.sin_addr.s_addr != sin_old.sin_addr.s_addr || sin.sin_port != sin_old.sin_port)
       {
          if(have_sin_old) display();
-         curx_init(&cx);
+         curx_init(&cx, output_missing);
          memcpy(&sin_old, &sin, sizeof(sin_old));
          have_sin_old = true;
          printf("Receiving from %x:%d\n", ntohl(sin.sin_addr.s_addr), ntohs(sin.sin_port));
