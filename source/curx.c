@@ -92,7 +92,7 @@ static int curx_find_smallest_greater_than(struct curx_miss_checker *c, uint32_t
 
   for(i = 0; i < c->seen_size; i ++)
   {
-    if(j_smallest < 0 || ((minus_infinity || c->seen[j] > seq) && c->seen[j] < smallest))
+    if((minus_infinity || c->seen[j] > seq) && (j_smallest < 0 || c->seen[j] < smallest))
     {
       smallest = c->seen[j];
       j_smallest = j; 
@@ -112,8 +112,8 @@ static inline void swap_uint32_t(uint32_t *a, int i, int j)
 
 static void curx_miss_checker_remove_smallest(struct curx_miss_checker *c, struct curx_miss_checker_result *r)
 {
-  int j_smallest      = curx_find_smallest_greater_than(c, 0, 1),
-      j_next_smallest = curx_find_smallest_greater_than(c, c->seen[j_smallest], 0);
+  int j_smallest      = curx_find_smallest_greater_than(c, 0, 1);
+  int j_next_smallest = curx_find_smallest_greater_than(c, c->seen[j_smallest], 0);
   uint32_t s0 = c->seen[j_smallest],
            s1 = c->seen[j_next_smallest];
   unsigned int num_missing = s1 - s0 - 1;
